@@ -167,10 +167,24 @@ namespace GridTools
   }
 
 
+
   template <>
   double
-  cell_measure<3>(const std::vector<Point<3> > &all_vertices,
-                  const unsigned int (&vertex_indices)[GeometryInfo<3>::vertices_per_cell])
+  cell_measure<1>
+  (const std::vector<Point<1> > &all_vertices,
+   const unsigned int (&vertex_indices)[GeometryInfo<1>::vertices_per_cell])
+  {
+    return all_vertices[vertex_indices[1]][0]
+           - all_vertices[vertex_indices[0]][0];
+  }
+
+
+
+  template <>
+  double
+  cell_measure<3>
+  (const std::vector<Point<3> > &all_vertices,
+   const unsigned int (&vertex_indices)[GeometryInfo<3>::vertices_per_cell])
   {
     // note that this is the
     // cell_measure based on the new
@@ -292,8 +306,9 @@ namespace GridTools
 
   template <>
   double
-  cell_measure(const std::vector<Point<2> > &all_vertices,
-               const unsigned int (&vertex_indices) [GeometryInfo<2>::vertices_per_cell])
+  cell_measure<2>
+  (const std::vector<Point<2> > &all_vertices,
+   const unsigned int (&vertex_indices) [GeometryInfo<2>::vertices_per_cell])
   {
     /*
       Get the computation of the measure by this little Maple script. We
@@ -348,35 +363,37 @@ namespace GridTools
   }
 
 
-
-
-  template <int dim>
-  double
-  cell_measure(const std::vector<Point<dim> > &,
-               const unsigned int ( &) [GeometryInfo<dim>::vertices_per_cell])
-  {
-    Assert(false, ExcNotImplemented());
-    return 0.;
-  }
-
-
-
   template <int dim, int spacedim>
   void
   delete_unused_vertices (std::vector<Point<spacedim> >    &vertices,
                           std::vector<CellData<dim> > &cells,
                           SubCellData                 &subcelldata)
   {
-    // first check which vertices are
-    // actually used
+    Assert(subcelldata.check_consistency(dim),
+           ExcMessage("Invalid SubCellData supplied according to ::check_consistency(). "
+                      "This is caused by data containing objects for the wrong dimension."));
+
+    // first check which vertices are actually used
     std::vector<bool> vertex_used (vertices.size(), false);
     for (unsigned int c=0; c<cells.size(); ++c)
       for (unsigned int v=0; v<GeometryInfo<dim>::vertices_per_cell; ++v)
-        vertex_used[cells[c].vertices[v]] = true;
+        {
+          Assert(cells[c].vertices[v] < vertices.size(),
+                 ExcMessage("Invalid vertex index encountered! cells["
+                            + Utilities::int_to_string(c)
+                            + "].vertices["
+                            + Utilities::int_to_string(v)
+                            + "]="
+                            + Utilities::int_to_string(cells[c].vertices[v])
+                            + " is invalid, because only "
+                            + Utilities::int_to_string(vertices.size())
+                            + " vertices were supplied."));
+          vertex_used[cells[c].vertices[v]] = true;
+        }
 
-    // then renumber the vertices that
-    // are actually used in the same
-    // order as they were beforehand
+
+    // then renumber the vertices that are actually used in the same order as
+    // they were beforehand
     const unsigned int invalid_vertex = numbers::invalid_unsigned_int;
     std::vector<unsigned int> new_vertex_numbers (vertices.size(), invalid_vertex);
     unsigned int next_free_number = 0;
@@ -385,10 +402,9 @@ namespace GridTools
         {
           new_vertex_numbers[i] = next_free_number;
           ++next_free_number;
-        };
+        }
 
-    // next replace old vertex numbers
-    // by the new ones
+    // next replace old vertex numbers by the new ones
     for (unsigned int c=0; c<cells.size(); ++c)
       for (unsigned int v=0; v<GeometryInfo<dim>::vertices_per_cell; ++v)
         cells[c].vertices[v] = new_vertex_numbers[cells[c].vertices[v]];
@@ -396,17 +412,43 @@ namespace GridTools
     // same for boundary data
     for (unsigned int c=0; c<subcelldata.boundary_lines.size(); ++c)
       for (unsigned int v=0; v<GeometryInfo<1>::vertices_per_cell; ++v)
-        subcelldata.boundary_lines[c].vertices[v]
-          = new_vertex_numbers[subcelldata.boundary_lines[c].vertices[v]];
+        {
+          Assert(subcelldata.boundary_lines[c].vertices[v] < new_vertex_numbers.size(),
+                 ExcMessage("Invalid vertex index in subcelldata.boundary_lines. "
+                            "subcelldata.boundary_lines["
+                            + Utilities::int_to_string(c)
+                            + "].vertices["
+                            + Utilities::int_to_string(v)
+                            + "]="
+                            + Utilities::int_to_string(subcelldata.boundary_lines[c].vertices[v])
+                            + " is invalid, because only "
+                            + Utilities::int_to_string(vertices.size())
+                            + " vertices were supplied."));
+          subcelldata.boundary_lines[c].vertices[v]
+            = new_vertex_numbers[subcelldata.boundary_lines[c].vertices[v]];
+        }
+
     for (unsigned int c=0; c<subcelldata.boundary_quads.size(); ++c)
       for (unsigned int v=0; v<GeometryInfo<2>::vertices_per_cell; ++v)
-        subcelldata.boundary_quads[c].vertices[v]
-          = new_vertex_numbers[subcelldata.boundary_quads[c].vertices[v]];
+        {
+          Assert(subcelldata.boundary_quads[c].vertices[v] < new_vertex_numbers.size(),
+                 ExcMessage("Invalid vertex index in subcelldata.boundary_quads. "
+                            "subcelldata.boundary_quads["
+                            + Utilities::int_to_string(c)
+                            + "].vertices["
+                            + Utilities::int_to_string(v)
+                            + "]="
+                            + Utilities::int_to_string(subcelldata.boundary_quads[c].vertices[v])
+                            + " is invalid, because only "
+                            + Utilities::int_to_string(vertices.size())
+                            + " vertices were supplied."));
 
-    // finally copy over the vertices
-    // which we really need to a new
-    // array and replace the old one by
-    // the new one
+          subcelldata.boundary_quads[c].vertices[v]
+            = new_vertex_numbers[subcelldata.boundary_quads[c].vertices[v]];
+        }
+
+    // finally copy over the vertices which we really need to a new array and
+    // replace the old one by the new one
     std::vector<Point<spacedim> > tmp;
     tmp.reserve (std::count(vertex_used.begin(), vertex_used.end(), true));
     for (unsigned int v=0; v<vertices.size(); ++v)
@@ -430,18 +472,24 @@ namespace GridTools
     // later on change that if necessary.
     std::vector<unsigned int> new_vertex_numbers(vertices.size());
     for (unsigned int i=0; i<vertices.size(); ++i)
-      new_vertex_numbers[i]=i;
+      new_vertex_numbers[i] = i;
 
     // if the considered_vertices vector is
     // empty, consider all vertices
     if (considered_vertices.size()==0)
-      considered_vertices=new_vertex_numbers;
+      considered_vertices = new_vertex_numbers;
+
+    Assert(considered_vertices.size() <= vertices.size(),
+           ExcInternalError());
+
 
     // now loop over all vertices to be
     // considered and try to find an identical
     // one
     for (unsigned int i=0; i<considered_vertices.size(); ++i)
       {
+        Assert(considered_vertices[i]<vertices.size(),
+               ExcInternalError());
         if (new_vertex_numbers[considered_vertices[i]]!=considered_vertices[i])
           // this vertex has been identified with
           // another one already, skip it in the
@@ -479,7 +527,7 @@ namespace GridTools
       for (unsigned int v=0; v<GeometryInfo<dim>::vertices_per_cell; ++v)
         cells[c].vertices[v]=new_vertex_numbers[cells[c].vertices[v]];
 
-    delete_unused_vertices(vertices,cells,subcelldata);
+    delete_unused_vertices(vertices, cells, subcelldata);
   }
 
 
@@ -523,6 +571,36 @@ namespace GridTools
       const double angle;
     };
 
+    // Transformation to rotate around one of the cartesian axes.
+    class Rotate3d
+    {
+    public:
+      Rotate3d (const double angle,
+                const unsigned int axis)
+        :
+        angle(angle),
+        axis(axis)
+      {}
+
+      Point<3> operator() (const Point<3> &p) const
+      {
+        if (axis==0)
+          return Point<3> (p(0),
+                           std::cos(angle)*p(1) - std::sin(angle) * p(2),
+                           std::sin(angle)*p(1) + std::cos(angle) * p(2));
+        else if (axis==1)
+          return Point<3> (std::cos(angle)*p(0) + std::sin(angle) * p(2),
+                           p(1),
+                           -std::sin(angle)*p(0) + std::cos(angle) * p(2));
+        else
+          return Point<3> (std::cos(angle)*p(0) - std::sin(angle) * p(1),
+                           std::sin(angle)*p(0) + std::cos(angle) * p(1),
+                           p(2));
+      }
+    private:
+      const double angle;
+      const unsigned int axis;
+    };
 
     template <int spacedim>
     class Scale
@@ -559,7 +637,16 @@ namespace GridTools
     transform (Rotate2d(angle), triangulation);
   }
 
+  template<int dim>
+  void
+  rotate (const double      angle,
+          const unsigned int axis,
+          Triangulation<dim,3> &triangulation)
+  {
+    Assert(axis<3, ExcMessage("Invalid axis given!"));
 
+    transform (Rotate3d(angle, axis), triangulation);
+  }
 
   template <int dim, int spacedim>
   void
@@ -3800,6 +3887,101 @@ next_cell:
                   cell->face(f)->set_manifold_id(cell->material_id());
               }
           }
+      }
+  }
+
+  template<int dim, int spacedim>
+  std::pair<unsigned int, double>
+  get_longest_direction(typename Triangulation<dim, spacedim>::active_cell_iterator cell)
+  {
+    double max_ratio = 1;
+    unsigned int index = 0;
+
+    for (unsigned int i = 0; i < dim; ++i)
+      for (unsigned int j = i+1; j < dim; ++j)
+        {
+          unsigned int ax = i % dim;
+          unsigned int next_ax = j % dim;
+
+          double ratio =  cell->extent_in_direction(ax) / cell->extent_in_direction(next_ax);
+
+          if ( ratio > max_ratio )
+            {
+              max_ratio = ratio;
+              index = ax;
+            }
+          else if ( 1.0 /ratio > max_ratio )
+            {
+              max_ratio = 1.0 /ratio;
+              index = next_ax;
+            }
+        }
+    return std::make_pair(index, max_ratio);
+  }
+
+
+  template<int dim, int spacedim>
+  void
+  remove_hanging_nodes( Triangulation<dim,spacedim> &tria,
+                        const bool isotropic,
+                        const unsigned int max_iterations)
+  {
+    unsigned int iter = 0;
+    bool continue_refinement = true;
+
+    typename Triangulation<dim, spacedim>::active_cell_iterator
+    cell = tria.begin_active(),
+    endc = tria.end();
+
+    while ( continue_refinement && (iter < max_iterations) )
+      {
+        if (max_iterations != numbers::invalid_unsigned_int) iter++;
+        continue_refinement = false;
+
+        for (cell=tria.begin_active(); cell!= endc; ++cell)
+          for (unsigned int j = 0; j < GeometryInfo<dim>::faces_per_cell; j++)
+            if (cell->at_boundary(j)==false && cell->neighbor(j)->has_children())
+              {
+                if (isotropic)
+                  {
+                    cell->set_refine_flag();
+                    continue_refinement = true;
+                  }
+                else
+                  continue_refinement |= cell->flag_for_face_refinement(j);
+              }
+
+        tria.execute_coarsening_and_refinement();
+      }
+  }
+
+  template<int dim, int spacedim>
+  void
+  remove_anisotropy(  Triangulation<dim,spacedim> &tria,
+                      const double max_ratio,
+                      const unsigned int max_iterations)
+  {
+    unsigned int iter = 0;
+    bool continue_refinement = true;
+
+    typename Triangulation<dim, spacedim>::active_cell_iterator
+    cell = tria.begin_active(),
+    endc = tria.end();
+
+    while ( continue_refinement && (iter<max_iterations) )
+      {
+        iter++;
+        continue_refinement = false;
+        for (cell=tria.begin_active(); cell!= endc; ++cell)
+          {
+            std::pair<unsigned int, double> info = GridTools::get_longest_direction<dim,spacedim>(cell);
+            if (info.second > max_ratio)
+              {
+                cell->set_refine_flag(RefinementCase<dim>::cut_axis(info.first));
+                continue_refinement = true;
+              }
+          }
+        tria.execute_coarsening_and_refinement ();
       }
   }
 

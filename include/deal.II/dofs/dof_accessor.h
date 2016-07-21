@@ -27,7 +27,6 @@
 DEAL_II_NAMESPACE_OPEN
 
 template <typename number> class FullMatrix;
-template <typename number> class SparseMatrix;
 template <typename number> class Vector;
 class ConstraintMatrix;
 
@@ -178,7 +177,7 @@ namespace internal
  *
  * @tparam structdim The dimensionality of the objects the accessor
  *   represents. For example, points have @p structdim equal to zero,
- *   edges have @structdim equal to one, etc.
+ *   edges have @p structdim equal to one, etc.
  * @tparam DoFHandlerType The type of the DoF handler into which accessor
  *   of this type point. This is either the DoFHandler or hp::DoFHandler
  *   class. See also the @ref ConceptDoFHandlerType "DoFHandlerType concept".
@@ -1263,7 +1262,23 @@ public:
    * accessor without access to the DoF data.
    */
   TriaIterator<DoFCellAccessor<DoFHandlerType, level_dof_access> >
-  neighbor (const unsigned int) const;
+  neighbor (const unsigned int i) const;
+
+  /**
+   * Return the @p ith periodic neighbor as a DoF cell iterator. This function
+   * is needed since the neighbor function of the base class returns a cell
+   * accessor without access to the DoF data.
+   */
+  TriaIterator<DoFCellAccessor<DoFHandlerType, level_dof_access> >
+  periodic_neighbor (const unsigned int i) const;
+
+  /**
+   * Return the @p ith neighbor or periodic neighbor as a DoF cell iterator.
+   * This function is needed since the neighbor function of the base class
+   * returns a cell accessor without access to the DoF data.
+   */
+  TriaIterator<DoFCellAccessor<DoFHandlerType, level_dof_access> >
+  neighbor_or_periodic_neighbor (const unsigned int i) const;
 
   /**
    * Return the @p ith child as a DoF cell iterator. This function is needed
@@ -1271,7 +1286,7 @@ public:
    * without access to the DoF data.
    */
   TriaIterator<DoFCellAccessor<DoFHandlerType, level_dof_access> >
-  child (const unsigned int) const;
+  child (const unsigned int i) const;
 
   /**
    * Return an iterator to the @p ith face of this cell.
@@ -1291,6 +1306,16 @@ public:
   TriaIterator<DoFCellAccessor<DoFHandlerType, level_dof_access> >
   neighbor_child_on_subface (const unsigned int face_no,
                              const unsigned int subface_no) const;
+
+  /**
+   * Return the result of the @p periodic_neighbor_child_on_subface function
+   * of the base class, but convert it so that one can also access the DoF
+   * data (the function in the base class only returns an iterator with access
+   * to the triangulation data).
+   */
+  TriaIterator<DoFCellAccessor<DoFHandlerType, level_dof_access> >
+  periodic_neighbor_child_on_subface (const unsigned int face_no,
+                                      const unsigned int subface_no) const;
 
   /**
    * @}

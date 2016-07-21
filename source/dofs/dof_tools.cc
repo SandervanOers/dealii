@@ -34,9 +34,11 @@
 #include <deal.II/fe/fe.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/fe_tools.h>
+#include <deal.II/hp/dof_handler.h>
 #include <deal.II/hp/fe_collection.h>
-#include <deal.II/hp/q_collection.h>
 #include <deal.II/hp/fe_values.h>
+#include <deal.II/hp/mapping_collection.h>
+#include <deal.II/hp/q_collection.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/distributed/tria.h>
 #include <deal.II/distributed/shared_tria.h>
@@ -1143,10 +1145,22 @@ namespace DoFTools
     std::vector< dealii::types::subdomain_id > subdomain_association (dof_handler.n_dofs ());
     dealii::DoFTools::get_subdomain_association (dof_handler, subdomain_association);
 
-    const unsigned int n_subdomains = 1 + (*std::max_element (subdomain_association.begin (),
-                                                              subdomain_association.end ()   ));
+    const unsigned int n_subdomains
+      = (dynamic_cast<const parallel::Triangulation<DoFHandlerType::dimension,DoFHandlerType::space_dimension> *>
+         (&dof_handler.get_triangulation()) == 0
+         ?
+         1
+         :
+         Utilities::MPI::n_mpi_processes
+         (dynamic_cast<const parallel::Triangulation<DoFHandlerType::dimension,DoFHandlerType::space_dimension> *>
+          (&dof_handler.get_triangulation())->get_communicator()));
+    Assert (n_subdomains >
+            *std::max_element (subdomain_association.begin (),
+                               subdomain_association.end ()),
+            ExcInternalError());
 
-    std::vector<dealii::IndexSet> index_sets (n_subdomains,dealii::IndexSet(dof_handler.n_dofs()));
+    std::vector<dealii::IndexSet> index_sets (n_subdomains,
+                                              dealii::IndexSet(dof_handler.n_dofs()));
 
     // loop over subdomain_association and populate IndexSet when a
     // change in subdomain ID is found
@@ -2173,15 +2187,16 @@ namespace DoFTools
   }
 
 
-
   template <typename DoFHandlerType>
-  void make_vertex_patches (SparsityPattern       &block_list,
-                            const DoFHandlerType &dof_handler,
-                            const unsigned int    level,
-                            const bool            interior_only,
-                            const bool            boundary_patches,
-                            const bool            level_boundary_patches,
-                            const bool            single_cell_patches)
+  std::vector<unsigned int>
+  make_vertex_patches (SparsityPattern      &block_list,
+                       const DoFHandlerType &dof_handler,
+                       const unsigned int    level,
+                       const bool            interior_only,
+                       const bool            boundary_patches,
+                       const bool            level_boundary_patches,
+                       const bool            single_cell_patches,
+                       const bool            invert_vertex_mapping)
   {
     typename DoFHandlerType::level_cell_iterator cell;
     typename DoFHandlerType::level_cell_iterator endc = dof_handler.end(level);
@@ -2287,8 +2302,21 @@ namespace DoFTools
               }
           }
       }
-  }
 
+    if (invert_vertex_mapping)
+      {
+        // Compress vertex mapping
+        unsigned int n_vertex_count = 0;
+        for (unsigned int vg = 0; vg < vertex_mapping.size(); ++vg)
+          if (vertex_mapping[vg] != numbers::invalid_unsigned_int)
+            vertex_mapping[n_vertex_count++] = vg;
+
+        // Now we reduce it to the part we actually want
+        vertex_mapping.resize(n_vertex_count);
+      }
+
+    return vertex_mapping;
+  }
 
 
   template <typename DoFHandlerType>

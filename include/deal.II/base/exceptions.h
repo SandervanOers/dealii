@@ -520,6 +520,7 @@ namespace deal_II_exceptions
  * @ingroup Exceptions
  */
 #define DeclException0(Exception0)                                        \
+  /** @ingroup Exceptions */ \
   static dealii::ExceptionBase& Exception0 ()
 
 /**
@@ -531,6 +532,8 @@ namespace deal_II_exceptions
  * @ingroup Exceptions
  */
 #define DeclExceptionMsg(Exception, defaulttext)                          \
+  /** @ingroup Exceptions */ \
+  /** @dealiiExceptionMessage{defaulttext} */  \
   static dealii::ExceptionBase& Exception ()
 
 /**
@@ -540,7 +543,9 @@ namespace deal_II_exceptions
  * @ingroup Exceptions
  */
 #define DeclException1(Exception1, type1, outsequence)                    \
-  static dealii::ExceptionBase& Exception1 (type1 arg1) throw (errortext outsequence)
+  /** @ingroup Exceptions */ \
+  /** @dealiiExceptionMessage{outsequence} */              \
+  static dealii::ExceptionBase& Exception1 (type1 arg1)
 
 
 /**
@@ -550,7 +555,9 @@ namespace deal_II_exceptions
  * @ingroup Exceptions
  */
 #define DeclException2(Exception2, type1, type2, outsequence)             \
-  static dealii::ExceptionBase& Exception2 (type1 arg1, type2 arg2) throw (errortext outsequence)
+  /** @ingroup Exceptions */ \
+  /** @dealiiExceptionMessage{outsequence} */              \
+  static dealii::ExceptionBase& Exception2 (type1 arg1, type2 arg2)
 
 
 /**
@@ -560,7 +567,9 @@ namespace deal_II_exceptions
  * @ingroup Exceptions
  */
 #define DeclException3(Exception3, type1, type2, type3, outsequence)      \
-  static dealii::ExceptionBase& Exception3 (type1 arg1, type2 arg2, type3 arg3) throw (errortext outsequence)
+  /** @ingroup Exceptions */ \
+  /** @dealiiExceptionMessage{outsequence} */              \
+  static dealii::ExceptionBase& Exception3 (type1 arg1, type2 arg2, type3 arg3)
 
 
 /**
@@ -570,7 +579,9 @@ namespace deal_II_exceptions
  * @ingroup Exceptions
  */
 #define DeclException4(Exception4, type1, type2, type3, type4, outsequence) \
-  static dealii::ExceptionBase& Exception4 (type1 arg1, type2 arg2, type3 arg3, type4 arg4) throw (errortext outsequence)
+  /** @ingroup Exceptions */ \
+  /** @dealiiExceptionMessage{outsequence} */                \
+  static dealii::ExceptionBase& Exception4 (type1 arg1, type2 arg2, type3 arg3, type4 arg4)
 
 
 /**
@@ -580,7 +591,9 @@ namespace deal_II_exceptions
  * @ingroup Exceptions
  */
 #define DeclException5(Exception5, type1, type2, type3, type4, type5, outsequence) \
-  static dealii::ExceptionBase& Exception5 (type1 arg1, type2 arg2, type3 arg3, type4 arg4, type5 arg5) throw (errortext outsequence)
+  /** @ingroup Exceptions */ \
+  /** @dealiiExceptionMessage{outsequence} */                       \
+  static dealii::ExceptionBase& Exception5 (type1 arg1, type2 arg2, type3 arg3, type4 arg4, type5 arg5)
 
 #endif /*ifndef DOXYGEN*/
 
@@ -836,6 +849,20 @@ namespace StandardExceptions
                   << "d or simply does not make any sense.");
 
   /**
+   * This exception is raised if a functionality is not possible in the given
+   * combination of dimension and space-dimension.
+   *
+   * The constructor takes two <tt>int</tt>, denoting the dimension and the
+   * space dimension.
+   */
+  DeclException2 (ExcImpossibleInDimSpacedim,
+                  int, int,
+                  << "You are trying to execute functionality that is "
+                  << "impossible in dimensions <" << arg1 << "," << arg2
+                  << "> or simply does not make any sense.");
+
+
+  /**
    * A number is zero, but it should not be here.
    */
   DeclExceptionMsg(ExcZero,
@@ -1054,8 +1081,8 @@ namespace StandardExceptions
 
 
 /**
- * Special assertion, testing whether <tt>vec</tt> has size <tt>dim1</tt>, and
- * each entry of the vector has the size <tt>dim2</tt>
+ * An assertion that tests whether <tt>vec</tt> has size <tt>dim1</tt>, and
+ * each entry of the vector is itself an array that has the size <tt>dim2</tt>.
  *
  * @ingroup Exceptions
  * @author Guido Kanschat 2010
@@ -1065,14 +1092,9 @@ namespace StandardExceptions
 
 
 /**
- * Special assertion for index range of nonnegative indices.
- *
- * Since this is used very often and always repeats the arguments, we
- * introduce this special assertion for ExcIndexRange in order to keep the
- * user codes shorter.
- *
- * Called wit arguments <tt>index</tt> and <tt>range</tt> it asserts that
- * <tt>index&lt;range</tt> and throws ExcIndexRange(index,0,range) if it
+ * An assertion that tests that a given index is within the half-open
+ * range <code>[0,range)</code>. It throws an exception object
+ * <code>ExcIndexRange(index,0,range)</code> if the assertion
  * fails.
  *
  * @ingroup Exceptions
@@ -1081,8 +1103,20 @@ namespace StandardExceptions
 #define AssertIndexRange(index,range) Assert((index) < (range), \
                                              dealii::ExcIndexRange((index),0,(range)))
 
+/**
+ * An assertion that tests that a given index is within the half-open
+ * range <code>[0,range)</code>. It throws an exception object
+ * <code>ExcIndexRange(index,0,range)</code> if the assertion
+ * fails.
+ *
+ * This variation of the AssertIndexRange assertion is used for indices of type
+ * types::global_dof_index for which we need to make special accommodations because
+ * they may not fit into the regular 32-bit integer indices used in AssertIndexRange.
+ *
+ * @ingroup Exceptions
+ */
 #define AssertGlobalIndexRange(index,range) Assert((index) < (range), \
-                                                   ExcIndexRange<types::global_dof_index>((index),0,(range)))
+                                                   dealii::ExcIndexRange<types::global_dof_index>((index),0,(range)))
 
 /**
  * An assertion that checks whether a number is finite or not. We explicitly
@@ -1094,7 +1128,7 @@ namespace StandardExceptions
  * @author Wolfgang Bangerth, 2015
  */
 #define AssertIsFinite(number) Assert(dealii::numbers::is_finite(number), \
-                                      ExcNumberNotFinite(std::complex<double>(number)))
+                                      dealii::ExcNumberNotFinite(std::complex<double>(number)))
 
 using namespace StandardExceptions;
 

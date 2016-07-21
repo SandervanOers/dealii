@@ -115,9 +115,8 @@ namespace Patterns
    * can only be realized with inclusive bounds for non-integer values. We
    * thus stay consistent by always using closed intervals.
    *
-   * If the upper bound given to the constructor is smaller than the lower
-   * bound, then the infinite interval is implied, i.e. every integer is
-   * allowed.
+   * If the upper bound given to the constructor is smaller than the
+   * lower bound, then every integer is allowed.
    *
    * Giving bounds may be useful if for example a value can only be positive
    * and less than a reasonable upper bound (for example the number of
@@ -141,10 +140,11 @@ namespace Patterns
     static const int max_int_value;
 
     /**
-     * Constructor. Bounds can be specified within which a valid parameter has
-     * to be. If the upper bound is smaller than the lower bound, then the
-     * infinite interval is meant. The default values are chosen such that no
-     * bounds are enforced on parameters.
+     * Constructor. Bounds can be specified within which a valid
+     * parameter has to be. If the upper bound is smaller than the
+     * lower bound, then the entire set of integers is implied. The
+     * default values are chosen such that no bounds are enforced on
+     * parameters.
      */
     Integer (const int lower_bound = min_int_value,
              const int upper_bound = max_int_value);
@@ -208,9 +208,8 @@ namespace Patterns
    * can only be realized with inclusive bounds for non-integer values. We
    * thus stay consistent by always using closed intervals.
    *
-   * If the upper bound given to the constructor is smaller than the lower
-   * bound, then the infinite interval is implied, i.e. every integer is
-   * allowed.
+   * If the upper bound given to the constructor is smaller than the
+   * lower bound, then every double precision number is allowed.
    *
    * Giving bounds may be useful if for example a value can only be positive
    * and less than a reasonable upper bound (for example damping parameters
@@ -221,24 +220,23 @@ namespace Patterns
   {
   public:
     /**
-     * Minimal double value. If the <tt>std::numeric_limits</tt> class is
-     * available use this information to obtain the extremal values, otherwise
-     * set it so that this class understands that all values are allowed.
+     * Minimal double value used as default value, taken from
+     * <tt>std::numeric_limits</tt>.
      */
     static const double min_double_value;
 
     /**
-     * Maximal double value. If the numeric_limits class is available use this
-     * information to obtain the extremal values, otherwise set it so that
-     * this class understands that all values are allowed.
+     * Maximal double value used as default value, taken from
+     * <tt>std::numeric_limits</tt>.
      */
     static const double max_double_value;
 
     /**
-     * Constructor. Bounds can be specified within which a valid parameter has
-     * to be. If the upper bound is smaller than the lower bound, then the
-     * infinite interval is meant. The default values are chosen such that no
-     * bounds are enforced on parameters.
+     * Constructor. Bounds can be specified within which a valid
+     * parameter has to be. If the upper bound is smaller than the
+     * lower bound, then the entire set of double precision numbers is
+     * implied. The default values are chosen such that no bounds are
+     * enforced on parameters.
      */
     Double (const double lower_bound = min_double_value,
             const double upper_bound = max_double_value);
@@ -264,9 +262,11 @@ namespace Patterns
     virtual PatternBase *clone () const;
 
     /**
-     * Creates new object if the start of description matches
-     * description_init.  Ownership of that object is transferred to the
-     * caller of this function.
+     * Creates a new object on the heap using @p new if the given
+     * @p description is a valid format (for example created by calling
+     * description() on an existing object), or NULL otherwise. Ownership of
+     * the returned object is transferred to the caller of this function,
+     * which should be freed using @p delete.
      */
     static Double *create (const std::string &description);
 
@@ -275,7 +275,7 @@ namespace Patterns
      * Value of the lower bound. A number that satisfies the
      * @ref match
      * operation of this class must be equal to this value or larger, if the
-     * bounds of the interval for a valid range.
+     * bounds of the interval form a valid range.
      */
     const double lower_bound;
 
@@ -283,7 +283,7 @@ namespace Patterns
      * Value of the upper bound. A number that satisfies the
      * @ref match
      * operation of this class must be equal to this value or less, if the
-     * bounds of the interval for a valid range.
+     * bounds of the interval form a valid range.
      */
     const double upper_bound;
 
@@ -1077,29 +1077,10 @@ namespace Patterns
  * <h3>Using the %ParameterHandler Graphical User Interface</h3>
  *
  * An alternative to using the hand-written input files shown above is to use
- * the graphical user interface (GUI) that accompanies this class. For this,
- * you first need to write a description of all the parameters, their default
- * values, patterns and documentation strings into a file in a format that the
- * GUI can understand; this is done using the
- * ParameterHandler::print_parameters() function with ParameterHandler::XML as
- * second argument, as discussed in more detail below in the <i>Representation
- * of Parameters</i> section. This file can then be loaded using the
- * executable for the GUI, which should be located in
- * <code>lib/bin/dealii_parameter_gui</code> of your deal.II installation,
- * assuming that you have a sufficiently recent version of the <a
- * href="http://qt.nokia.com/">Qt toolkit</a> installed.
+ * the graphical user interface (GUI) that accompanies this class.
  *
- * Once loaded, the GUI displays subsections and individual parameters in tree
- * form (see also the discussion in the <i>Representation of Parameters</i>
- * section below). Here is a screen shot with some sub-sections expanded and
- * one parameter selected for editing:
- *
- * @image html parameter_gui.png "Parameter GUI"
- *
- * Using the GUI, you can edit the values of individual parameters and save
- * the result in the same format as before. It can then be read in using the
- * ParameterHandler::read_input_from_xml() function.
- *
+ * See <a href="https://github.com/dealii/parameter_gui>the parameter_gui
+ * github repository</a> for further details.
  *
  * <h3>Getting entry values out of a %ParameterHandler object</h3>
  *
@@ -1417,15 +1398,19 @@ namespace Patterns
  * We can think of the parameters so arranged as a file system in which every
  * parameter is a directory. The name of this directory is the name of the
  * parameter, and in this directory lie files that describe the parameter.
- * These files are: - <code>value</code>: The content of this file is the
- * current value of this parameter; initially, the content of the file equals
- * the default value of the parameter. - <code>default_value</code>: The
- * content of this file is the default value value of the parameter. -
- * <code>pattern</code>: A textual representation of the pattern that
- * describes the parameter's possible values. - <code>pattern_index</code>: A
- * number that indexes the Patterns::PatternBase object that is used to
- * describe the parameter. - <code>documentation</code>: The content of this
- * file is the documentation given for a parameter as the last argument of the
+ * These files are:
+ *
+ * - <code>value</code>: The content of this file is the current value of this
+ * parameter; initially, the content of the file equals the default value of
+ * the parameter.
+ * - <code>default_value</code>: The content of this file is the default value
+ * value of the parameter.
+ * - <code>pattern</code>: A textual representation of the pattern that
+ * describes the parameter's possible values.
+ * - <code>pattern_index</code>: A number that indexes the Patterns::PatternBase
+ * object that is used to describe the parameter.
+ * - <code>documentation</code>: The content of this file is the documentation
+ * given for a parameter as the last argument of the
  * ParameterHandler::declare_entry call. With the exception of the
  * <code>value</code> file, the contents of files are never changed after
  * declaration of a parameter.
@@ -1576,10 +1561,15 @@ public:
    * the file (if that's what the input stream represents) we are reading
    * from; this is only used when creating output for error messages.
    *
+   * If non-empty @p last_line is provided, the ParameterHandler object
+   * will stop parsing lines after encountering @p last_line .
+   * This is handy when adding extra data that shall be parsed manually.
+   *
    * Return whether the read was successful.
    */
   virtual bool read_input (std::istream &input,
-                           const std::string &filename = "input file");
+                           const std::string &filename = "input file",
+                           const std::string &last_line = "");
 
   /**
    * Read input from a file the name of which is given. The PathSearch class
@@ -1591,18 +1581,28 @@ public:
    * automatically generate the requested file with default values if the file
    * did not exist. This file will not contain additional comments if
    * <tt>write_stripped_file</tt> is <tt>true</tt>.
+   *
+   * If non-empty @p last_line is provided, the ParameterHandler object
+   * will stop parsing lines after encountering @p last_line .
+   * This is handy when adding extra data that shall be parsed manually.
    */
   virtual bool read_input (const std::string &filename,
                            const bool optional = false,
-                           const bool write_stripped_file = false);
+                           const bool write_stripped_file = false,
+                           const std::string &last_line = "");
 
   /**
    * Read input from a string in memory. The lines in memory have to be
    * separated by <tt>@\n</tt> characters.
    *
+   * If non-empty @p last_line is provided, the ParameterHandler object
+   * will stop parsing lines after encountering @p last_line .
+   * This is handy when adding extra data that shall be parsed manually.
+   *
    * Return whether the read was successful.
    */
-  virtual bool read_input_from_string (const char *s);
+  virtual bool read_input_from_string (const char *s,
+                                       const std::string &last_line = "");
 
   /**
    * Read a parameter file in XML format. This could be from a file originally
@@ -2270,13 +2270,18 @@ public:
    *
    * Return whether the read was successful.
    *
+   * If non-empty @p last_line is provided, the ParameterHandler object
+   * will stop parsing lines after encountering @p last_line .
+   * This is handy when adding extra data that shall be parsed manually.
+   *
    * @note Of the three <tt>read_input</tt> functions implemented by
    * ParameterHandler, this is the only one overridden with new behavior by
    * this class. This is because the other two <tt>read_input</tt> functions
    * just reformat their inputs and then call this version.
    */
   virtual bool read_input (std::istream &input,
-                           const std::string &filename = "input file");
+                           const std::string &filename = "input file",
+                           const std::string &last_line = "");
 
   /**
    * Overriding virtual functions which are overloaded (like
@@ -2307,7 +2312,7 @@ private:
   {
   public:
     /**
-     * Declare what a multiple entry is: a variant * entry (in curly braces
+     * Declare what a multiple entry is: a variant entry (in curly braces
      * <tt>{</tt>, <tt>}</tt>) or an array (in double curly braces
      * <tt>{{</tt>, <tt>}}</tt>).
      */

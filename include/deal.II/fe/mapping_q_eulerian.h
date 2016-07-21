@@ -17,17 +17,19 @@
 #ifndef dealii__mapping_q_eulerian_h
 #define dealii__mapping_q_eulerian_h
 
+#include <deal.II/base/config.h>
 #include <deal.II/base/smartpointer.h>
 #include <deal.II/base/thread_management.h>
 #include <deal.II/grid/tria_iterator.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_accessor.h>
-#include <deal.II/fe/fe.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_q.h>
 
 
 DEAL_II_NAMESPACE_OPEN
+
+template <typename> class Vector;
 
 
 /*!@addtogroup mapping */
@@ -35,7 +37,7 @@ DEAL_II_NAMESPACE_OPEN
 
 /**
  * This class is an extension of the MappingQ1Eulerian class to higher order
- * Qp mappings.  It is useful when one wants to calculate shape function
+ * $Q_p$ mappings.  It is useful when one wants to calculate shape function
  * information on a domain that is deforming as the computation proceeds.
  *
  * <h3>Usage</h3>
@@ -79,11 +81,8 @@ DEAL_II_NAMESPACE_OPEN
  * data.
  *
  * To enable the use of the MappingQ1Eulerian class also in the context of
- * parallel codes using the PETSc wrapper classes, the type of the vector can
- * be specified as template parameter <tt>EulerVectorType</tt> Not specifying
- * this template argument in applications using the PETSc vector classes leads
- * to the construction of a copy of the vector which is not accessible
- * afterwards!
+ * parallel codes using the PETSc or Trilinos wrapper classes, the type
+ * of the vector can be specified as template parameter <tt>VectorType</tt>.
  *
  * @author Joshua White, 2008
  */

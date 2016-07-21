@@ -546,112 +546,7 @@ namespace internal
             }
       }
 
-      template<int spacedim>
-      static
-      types::global_dof_index distribute_dofs_on_cell (typename DoFHandler<1, spacedim>::cell_iterator &cell, types::global_dof_index next_free_dof)
-      {
-        const FiniteElement<1, spacedim> &fe = cell->get_fe ();
 
-        if (fe.dofs_per_vertex > 0)
-          for (unsigned int vertex = 0; vertex < GeometryInfo<1>::vertices_per_cell; ++vertex)
-            {
-              typename DoFHandler<1, spacedim>::cell_iterator neighbor = cell->neighbor (vertex);
-
-              if (neighbor.state () == IteratorState::valid)
-                if (neighbor->user_flag_set () && (neighbor->level () == cell->level ()))
-                  {
-                    if (vertex == 0)
-                      for (unsigned int dof = 0; dof < fe.dofs_per_vertex; ++dof)
-                        cell->set_mg_vertex_dof_index (cell->level (), 0, dof, neighbor->mg_vertex_dof_index (cell->level (), 1, dof));
-
-                    else
-                      for (unsigned int dof = 0; dof < fe.dofs_per_vertex; ++dof)
-                        cell->set_mg_vertex_dof_index (cell->level (), 1, dof, neighbor->mg_vertex_dof_index (cell->level (), 0, dof));
-
-                    continue;
-                  }
-
-              for (unsigned int dof = 0; dof < fe.dofs_per_vertex; ++dof)
-                cell->set_mg_vertex_dof_index (cell->level (), vertex, dof, next_free_dof++);
-            }
-
-        if (fe.dofs_per_line > 0)
-          for (unsigned int dof = 0; dof < fe.dofs_per_line; ++dof)
-            cell->set_mg_dof_index (cell->level (), dof, next_free_dof++);
-
-        cell->set_user_flag ();
-        return next_free_dof;
-      }
-
-      template<int spacedim>
-      static
-      types::global_dof_index distribute_dofs_on_cell (typename DoFHandler<2, spacedim>::cell_iterator &cell, types::global_dof_index next_free_dof)
-      {
-        const FiniteElement<2, spacedim> &fe = cell->get_fe ();
-
-        if (fe.dofs_per_vertex > 0)
-          for (unsigned int vertex = 0; vertex < GeometryInfo<2>::vertices_per_cell; ++vertex)
-            if (cell->mg_vertex_dof_index (cell->level (), vertex, 0) == DoFHandler<2>::invalid_dof_index)
-              for (unsigned int dof = 0; dof < fe.dofs_per_vertex; ++dof)
-                cell->set_mg_vertex_dof_index (cell->level (), vertex, dof, next_free_dof++);
-
-        if (fe.dofs_per_line > 0)
-          for (unsigned int face = 0; face < GeometryInfo<2>::faces_per_cell; ++face)
-            {
-              typename DoFHandler<2, spacedim>::line_iterator line = cell->line (face);
-
-              if (line->mg_dof_index (cell->level (), 0) == DoFHandler<2>::invalid_dof_index)
-                for (unsigned int dof = 0; dof < fe.dofs_per_line; ++dof)
-                  line->set_mg_dof_index (cell->level (), dof, next_free_dof++);
-            }
-
-        if (fe.dofs_per_quad > 0)
-          for (unsigned int dof = 0; dof < fe.dofs_per_quad; ++dof)
-            cell->set_mg_dof_index (cell->level (), dof, next_free_dof++);
-
-        cell->set_user_flag ();
-        return next_free_dof;
-      }
-
-      template<int spacedim>
-      static
-      types::global_dof_index distribute_dofs_on_cell (typename DoFHandler<3, spacedim>::cell_iterator &cell, types::global_dof_index next_free_dof)
-      {
-        const FiniteElement<3, spacedim> &fe = cell->get_fe ();
-
-        if (fe.dofs_per_vertex > 0)
-          for (unsigned int vertex = 0; vertex < GeometryInfo<3>::vertices_per_cell; ++vertex)
-            if (cell->mg_vertex_dof_index (cell->level (), vertex, 0) == DoFHandler<3>::invalid_dof_index)
-              for (unsigned int dof = 0; dof < fe.dofs_per_vertex; ++dof)
-                cell->set_mg_vertex_dof_index (cell->level (), vertex, dof, next_free_dof++);
-
-        if (fe.dofs_per_line > 0)
-          for (unsigned int line = 0; line < GeometryInfo<3>::lines_per_cell; ++line)
-            {
-              typename DoFHandler<3, spacedim>::line_iterator line_it = cell->line (line);
-
-              if (line_it->mg_dof_index (cell->level (), 0) == DoFHandler<3>::invalid_dof_index)
-                for (unsigned int dof = 0; dof < fe.dofs_per_line; ++dof)
-                  line_it->set_mg_dof_index (cell->level (), dof, next_free_dof++);
-            }
-
-        if (fe.dofs_per_quad > 0)
-          for (unsigned int face = 0; face < GeometryInfo<3>::quads_per_cell; ++face)
-            {
-              typename DoFHandler<3, spacedim>::quad_iterator quad = cell->quad (face);
-
-              if (quad->mg_dof_index (cell->level (), 0) == DoFHandler<3>::invalid_dof_index)
-                for (unsigned int dof = 0; dof < fe.dofs_per_quad; ++dof)
-                  quad->set_mg_dof_index (cell->level (), dof, next_free_dof++);
-            }
-
-        if (fe.dofs_per_hex > 0)
-          for (unsigned int dof = 0; dof < fe.dofs_per_hex; ++dof)
-            cell->set_mg_dof_index (cell->level (), dof, next_free_dof++);
-
-        cell->set_user_flag ();
-        return next_free_dof;
-      }
 
       template<int spacedim>
       static
@@ -1004,12 +899,13 @@ types::global_dof_index DoFHandler<1>::n_boundary_dofs () const
 
 
 template <>
-types::global_dof_index DoFHandler<1>::n_boundary_dofs (const FunctionMap &boundary_ids) const
+template <typename number>
+types::global_dof_index DoFHandler<1>::n_boundary_dofs (const std::map<types::boundary_id, const Function<1,number>*> &boundary_ids) const
 {
   // check that only boundary
   // indicators 0 and 1 are allowed
   // in 1d
-  for (FunctionMap::const_iterator i=boundary_ids.begin();
+  for (typename std::map<types::boundary_id, const Function<1,number>*>::const_iterator i=boundary_ids.begin();
        i!=boundary_ids.end(); ++i)
     Assert ((i->first == 0) || (i->first == 1),
             ExcInvalidBoundaryIndicator());
@@ -1043,12 +939,13 @@ types::global_dof_index DoFHandler<1,2>::n_boundary_dofs () const
 
 
 template <>
-types::global_dof_index DoFHandler<1,2>::n_boundary_dofs (const FunctionMap &boundary_ids) const
+template <typename number>
+types::global_dof_index DoFHandler<1,2>::n_boundary_dofs (const std::map<types::boundary_id, const Function<2,number>*> &boundary_ids) const
 {
   // check that only boundary
   // indicators 0 and 1 are allowed
   // in 1d
-  for (FunctionMap::const_iterator i=boundary_ids.begin();
+  for (typename std::map<types::boundary_id, const Function<2,number>*>::const_iterator i=boundary_ids.begin();
        i!=boundary_ids.end(); ++i)
     Assert ((i->first == 0) || (i->first == 1),
             ExcInvalidBoundaryIndicator());
@@ -1113,8 +1010,9 @@ types::global_dof_index DoFHandler<dim,spacedim>::n_boundary_dofs () const
 
 
 template<int dim, int spacedim>
+template<typename number>
 types::global_dof_index
-DoFHandler<dim,spacedim>::n_boundary_dofs (const FunctionMap &boundary_ids) const
+DoFHandler<dim,spacedim>::n_boundary_dofs (const std::map<types::boundary_id, const Function<spacedim,number>*> &boundary_ids) const
 {
   Assert (boundary_ids.find(numbers::internal_face_boundary_id) == boundary_ids.end(),
           ExcInvalidBoundaryIndicator());
@@ -1434,7 +1332,8 @@ void DoFHandler<2>::renumber_dofs (const unsigned int  level,
       // level, as those lines logically belong to the same
       // level as the cell, at least for for isotropic
       // refinement
-      for (level_cell_iterator cell = begin(level); cell != end(level); ++cell)
+      level_cell_iterator cell, endc = end(level);
+      for (cell = begin(level); cell != endc; ++cell)
         for (unsigned int line=0; line < GeometryInfo<2>::faces_per_cell; ++line)
           cell->face(line)->set_user_flag();
 
@@ -1494,12 +1393,13 @@ void DoFHandler<3>::renumber_dofs (const unsigned int  level,
       // level, as those lines logically belong to the same
       // level as the cell, at least for for isotropic
       // refinement
-      for (level_cell_iterator cell = begin(level) ; cell != end(level) ; ++cell)
+      level_cell_iterator cell, endc = end(level);
+      for (cell = begin(level) ; cell != endc ; ++cell)
         for (unsigned int line=0; line < GeometryInfo<3>::lines_per_cell; ++line)
           cell->line(line)->set_user_flag();
 
 
-      for (cell_iterator cell = begin(level); cell != end(level); ++cell)
+      for (cell = begin(level); cell != endc; ++cell)
         for (unsigned int l=0; l<GeometryInfo<3>::lines_per_cell; ++l)
           if (cell->line(l)->user_flag_set())
             {
@@ -1524,11 +1424,12 @@ void DoFHandler<3>::renumber_dofs (const unsigned int  level,
       // level, as those lines logically belong to the same
       // level as the cell, at least for for isotropic
       // refinement
-      for (level_cell_iterator cell = begin(level) ; cell != end(level); ++cell)
+      level_cell_iterator cell, endc = end(level);
+      for (cell = begin(level) ; cell != endc; ++cell)
         for (unsigned int quad=0; quad < GeometryInfo<3>::faces_per_cell; ++quad)
           cell->face(quad)->set_user_flag();
 
-      for (cell_iterator cell = begin(level); cell != end(level); ++cell)
+      for (cell = begin(level); cell != endc; ++cell)
         for (unsigned int q=0; q<GeometryInfo<3>::quads_per_cell; ++q)
           if (cell->quad(q)->user_flag_set())
             {

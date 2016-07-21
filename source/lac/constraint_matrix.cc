@@ -23,8 +23,8 @@
 #include <deal.II/lac/sparse_matrix_ez.h>
 #include <deal.II/lac/chunk_sparse_matrix.h>
 #include <deal.II/lac/block_sparse_matrix_ez.h>
-#include <deal.II/lac/parallel_vector.h>
-#include <deal.II/lac/parallel_block_vector.h>
+#include <deal.II/lac/la_parallel_vector.h>
+#include <deal.II/lac/la_parallel_block_vector.h>
 #include <deal.II/lac/petsc_vector.h>
 #include <deal.II/lac/petsc_block_vector.h>
 #include <deal.II/lac/petsc_sparse_matrix.h>
@@ -1225,16 +1225,28 @@ ConstraintMatrix::resolve_indices (std::vector<types::global_dof_index> &indices
   distribute_local_to_global<VectorType > (const Vector<VectorType::value_type>            &, \
                                            const std::vector<ConstraintMatrix::size_type>  &, \
                                            VectorType                      &, \
-                                           const FullMatrix<VectorType::value_type>        &) const
-
+                                           const FullMatrix<VectorType::value_type>        &) const;\
+  template void ConstraintMatrix:: \
+  distribute_local_to_global<VectorType > (const Vector<VectorType::value_type>            &, \
+                                           const std::vector<ConstraintMatrix::size_type>  &, \
+                                           const std::vector<ConstraintMatrix::size_type>  &, \
+                                           VectorType                      &, \
+                                           const FullMatrix<VectorType::value_type> &, \
+                                           bool) const
 
 #define PARALLEL_VECTOR_FUNCTIONS(VectorType) \
   template void ConstraintMatrix:: \
   distribute_local_to_global<VectorType > (const Vector<VectorType::value_type>            &, \
                                            const std::vector<ConstraintMatrix::size_type>  &, \
                                            VectorType                      &, \
-                                           const FullMatrix<VectorType::value_type>        &) const
-
+                                           const FullMatrix<VectorType::value_type>        &) const;\
+  template void ConstraintMatrix:: \
+  distribute_local_to_global<VectorType > (const Vector<VectorType::value_type>            &, \
+                                           const std::vector<ConstraintMatrix::size_type>  &, \
+                                           const std::vector<ConstraintMatrix::size_type>  &, \
+                                           VectorType                      &, \
+                                           const FullMatrix<VectorType::value_type> &, \
+                                           bool) const
 
 #ifdef DEAL_II_WITH_PETSC
 VECTOR_FUNCTIONS(PETScWrappers::MPI::Vector);
@@ -1288,6 +1300,8 @@ MATRIX_FUNCTIONS(SparseMatrix<float>);
 MATRIX_FUNCTIONS(FullMatrix<double>);
 MATRIX_FUNCTIONS(FullMatrix<float>);
 MATRIX_FUNCTIONS(FullMatrix<std::complex<double> >);
+MATRIX_FUNCTIONS(SparseMatrix<std::complex<double> >);
+MATRIX_FUNCTIONS(SparseMatrix<std::complex<float> >);
 
 BLOCK_MATRIX_FUNCTIONS(BlockSparseMatrix<double>);
 BLOCK_MATRIX_FUNCTIONS(BlockSparseMatrix<float>);
@@ -1404,10 +1418,8 @@ namespace internals
 
   SCRATCH_INITIALIZER(double,double);
   SCRATCH_INITIALIZER(float,float);
-  SCRATCH_INITIALIZER(long double,ldouble);
   SCRATCH_INITIALIZER(std::complex<double>,cdouble);
   SCRATCH_INITIALIZER(std::complex<float>,cfloat);
-  SCRATCH_INITIALIZER(std::complex<long double>,cldouble);
 #undef SCRATCH_INITIALIZER
 }
 

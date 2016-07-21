@@ -25,8 +25,6 @@
 #include <deal.II/base/iterator_range.h>
 #include <deal.II/base/std_cxx11/function.h>
 #include <deal.II/grid/tria_iterator_selector.h>
-#include <deal.II/grid/tria_faces.h>
-#include <deal.II/grid/tria_levels.h>
 
 // Ignore deprecation warnings for auto_ptr.
 DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
@@ -40,6 +38,7 @@ DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
 #include <list>
 #include <map>
 #include <numeric>
+#include <bitset>
 
 
 DEAL_II_NAMESPACE_OPEN
@@ -48,9 +47,14 @@ template <int dim, int spacedim> class Boundary;
 template <int dim, int spacedim> class StraightBoundary;
 template <int dim, int spacedim> class Manifold;
 
+namespace GridTools
+{
+  template<typename CellIterator>  struct PeriodicFacePair;
+}
+
 template <int, int, int> class TriaAccessor;
 template <int spacedim> class TriaAccessor<0,1,spacedim>;
-
+template <int, int, int> class TriaAccessorBase;
 
 namespace internal
 {
@@ -75,7 +79,6 @@ namespace internal
   }
 }
 
-template <int dim, int spacedim> class DoFHandler;
 namespace hp
 {
   template <int dim, int spacedim> class DoFHandler;
@@ -132,10 +135,11 @@ struct CellData
   types::manifold_id manifold_id;
 
   /**
-   * Default constructor. Sets the member variables to the following values: -
-   * vertex indices to invalid values - boundary or material id zero (the
-   * default for boundary or material ids) - manifold id to
-   * numbers::invalid_manifold_id
+   * Default constructor. Sets the member variables to the following values:
+   *
+   * - vertex indices to invalid values
+   * - boundary or material id zero (the default for boundary or material ids)
+   * - manifold id to numbers::invalid_manifold_id
    */
   CellData ();
 };
@@ -491,19 +495,21 @@ namespace internal
  * <li> <em>Counting the number of cells on a specific level</em>
  *    @code
  *     template <int dim, int spacedim>
- *     int Triangulation<dim, spacedim>::n_cells (const int level) const {
+ *     int Triangulation<dim, spacedim>::n_cells (const int level) const
+ *     {
  *        cell_iterator cell = begin (level),
- *                      endc = end(level);
+ *                      endc = end (level);
  *        int n=0;
  *        for (; cell!=endc; ++cell)
  *          ++n;
  *        return n;
- *      };
+ *      }
  *    @endcode
  * Another way, which uses <tt>std::distance</tt>, would be to write
  *    @code
  *      template <int dim>
- *      int Triangulation<dim>::n_cells (const int level) const {
+ *      int Triangulation<dim>::n_cells (const int level) const
+ *      {
  *        int n=0;
  *        distance (begin(level),
  *                  (level == levels.size()-1 ?
@@ -511,20 +517,21 @@ namespace internal
  *                   begin (level+1)),
  *                  n);
  *        return n;
- *      };
+ *      }
  *    @endcode
  *
  * <li> <em>Refining all cells of a triangulation</em>
  *    @code
  *      template <int dim>
- *      void Triangulation<dim>::refine_global () {
+ *      void Triangulation<dim>::refine_global ()
+ *      {
  *        active_cell_iterator cell = begin_active(),
  *                             endc = end();
  *
  *        for (; cell != endc; ++cell)
  *          cell->set_refine_flag ();
  *        execute_coarsening_and_refinement ();
- *      };
+ *      }
  *    @endcode
  * </ul>
  *
@@ -534,42 +541,39 @@ namespace internal
  * Usage of a Triangulation is mainly done through the use of iterators. An
  * example probably shows best how to use it:
  *  @code
- *  void main () {
- *    Triangulation<2> tria;
+ * int main ()
+ * {
+ *   Triangulation<2> tria;
  *
- *    // read in a coarse grid file
+ *   // read in a coarse grid file
  *
- *                                     // we want to log the
- *                                     // refinement history
- *    ofstream history ("mesh.history");
+ *   // we want to log the refinement history
+ *   ofstream history ("mesh.history");
  *
- *                                     // refine first cell
- *    tria.begin_active()->set_refine_flag();
- *    tria.save_refine_flags (history);
- *    tria.execute_coarsening_and_refinement ();
+ *   // refine first cell
+ *   tria.begin_active()->set_refine_flag();
+ *   tria.save_refine_flags (history);
+ *   tria.execute_coarsening_and_refinement ();
  *
- *                                     // refine first active cell
- *                                     // on coarsest level
- *    tria.begin_active()->set_refine_flag ();
- *    tria.save_refine_flags (history);
- *    tria.execute_coarsening_and_refinement ();
+ *   // refine first active cell on coarsest level
+ *   tria.begin_active()->set_refine_flag ();
+ *   tria.save_refine_flags (history);
+ *   tria.execute_coarsening_and_refinement ();
  *
- *    Triangulation<2>::active_cell_iterator cell;
- *    for (int i=0; i<17; ++i)
- *      {
- *                                         // refine the presently
- *                                         // second last cell 17
- *                                         // times
- *        cell = tria.last_active(tria.n_levels()-1);
- *        --cell;
- *        cell->set_refine_flag ();
- *        tria.save_refine_flags (history);
- *        tria.execute_coarsening_and_refinement ();
- *      };
- *                                       // output the grid
- *    ofstream out("grid.1");
- *    GridOut::write_gnuplot (tria, out);
- *  };
+ *   Triangulation<2>::active_cell_iterator cell;
+ *   for (int i=0; i<17; ++i)
+ *     {
+ *       // refine the presently second last cell 17 times
+ *       cell = tria.last_active(tria.n_levels()-1);
+ *       --cell;
+ *       cell->set_refine_flag ();
+ *       tria.save_refine_flags (history);
+ *       tria.execute_coarsening_and_refinement ();
+ *     };
+ *   // output the grid
+ *   ofstream out("grid.1");
+ *   GridOut::write_gnuplot (tria, out);
+ * }
  *  @endcode
  *
  *
@@ -800,27 +804,29 @@ namespace internal
  * be stored and loaded through the @p save_refine_flags and @p
  * load_refine_flags functions. Normally, the code will look like this:
  *   @code
- *                                 // open output file
+ *     // open output file
  *     ofstream history("mesh.history");
- *                                 // do 10 refinement steps
- *     for (int step=0; step<10; ++step) {
- *       ...;
- *       // flag cells according to some criterion
- *       ...;
- *       tria.save_refine_flags (history);
- *       tria.execute_coarsening_and_refinement ();
- *     };
+ *     // do 10 refinement steps
+ *     for (unsigned int step=0; step<10; ++step)
+ *       {
+ *         ...;
+ *         // flag cells according to some criterion
+ *         ...;
+ *         tria.save_refine_flags (history);
+ *         tria.execute_coarsening_and_refinement ();
+ *       }
  *   @endcode
  *
  * If you want to re-create the grid from the stored information, you write:
  *   @code
- *                                 // open input file
+ *     // open input file
  *     ifstream history("mesh.history");
- *                                 // do 10 refinement steps
- *     for (int step=0; step<10; ++step) {
- *       tria.load_refine_flags (history);
- *       tria.execute_coarsening_and_refinement ();
- *     };
+ *     // do 10 refinement steps
+ *     for (unsigned int step=0; step<10; ++step)
+ *       {
+ *         tria.load_refine_flags (history);
+ *         tria.execute_coarsening_and_refinement ();
+ *       }
  *   @endcode
  *
  * The same scheme is employed for coarsening and the coarsening flags.
@@ -871,7 +877,7 @@ namespace internal
  * been called.
  *
  *
- * <h3>Boundary approximation</h3>
+ * <h3>%Boundary approximation</h3>
  *
  * You can specify a boundary function for each boundary component. If a new
  * vertex is created on a side or face at the boundary, this function is used
@@ -881,7 +887,8 @@ namespace internal
  * class derived from Boundary<tt><2></tt>):
  *
  *   @code
- *     void main () {
+ *     int main ()
+ *     {
  *       Triangulation<2> tria;
  *                                        // set the boundary function
  *                                        // for all boundaries with
@@ -889,25 +896,24 @@ namespace internal
  *       Ball ball;
  *       tria.set_boundary (0, ball);
  *
- *       // read some coarse grid
+ *   // read some coarse grid
  *
  *
- *       Triangulation<2>::active_cell_iterator cell, endc;
- *       for (int i=0; i<8; ++i)
- *         {
- *           cell = tria.begin_active();
- *           endc = tria.end();
+ *   Triangulation<2>::active_cell_iterator cell, endc;
+ *   for (int i=0; i<8; ++i)
+ *     {
+ *       cell = tria.begin_active();
+ *       endc = tria.end();
  *
- *                                            // refine all
- *                                            // boundary cells
- *           for (; cell!=endc; ++cell)
- *             if (cell->at_boundary())
- *               cell->set_refine_flag();
+ *       // refine all boundary cells
+ *       for (; cell!=endc; ++cell)
+ *         if (cell->at_boundary())
+ *           cell->set_refine_flag();
  *
- *           tria.execute_coarsening_and_refinement();
- *         };
- *     };
- *   @endcode
+ *       tria.execute_coarsening_and_refinement();
+ *     }
+ * }
+ * @endcode
  *
  * You should take note of one caveat: if you have concave boundaries, you
  * must make sure that a new boundary vertex does not lie too much inside the
@@ -940,11 +946,13 @@ namespace internal
  * As a simple example, the following code will print something to the output
  * every time the triangulation has just been refined:
  *   @code
- *     void f() {
+ *     void f()
+ *     {
  *       std::cout << "Triangulation has been refined." << std::endl;
  *     }
  *
- *     void run () {
+ *     void run ()
+ *     {
  *       Triangulation<dim> triangulation;
  *       // fill it somehow
  *       triangulation.signals.post_refinement.connect (&f);
@@ -968,16 +976,18 @@ namespace internal
  * concern to us here):
  *   @code
  *     template <int dim>
- *     class FEValues {
- *         Triangulation<dim>::active_cell_iterator current_cell, previous_cell;
- *       public:
- *         void reinit (Triangulation<dim>::active_cell_iterator &cell);
- *         void invalidate_previous_cell ();
+ *     class FEValues
+ *     {
+ *       Triangulation<dim>::active_cell_iterator current_cell, previous_cell;
+ *     public:
+ *       void reinit (Triangulation<dim>::active_cell_iterator &cell);
+ *       void invalidate_previous_cell ();
  *     };
  *
  *     template <int dim>
  *     void
- *     FEValues<dim>::reinit (Triangulation<dim>::active_cell_iterator &cell) {
+ *     FEValues<dim>::reinit (Triangulation<dim>::active_cell_iterator &cell)
+ *     {
  *       if (previous_cell.status() != valid)
  *         {
  *           // previous_cell has not been set. set it now, and register
@@ -992,13 +1002,14 @@ namespace internal
  *         previous_cell = current_cell;
  *
  *       current_cell = cell;
- *       ... do something with the cell...
+ *       // ... do something with the cell...
  *     }
  *
  *
  *     template <int dim>
  *     void
- *     FEValues<dim>::invalidate_previous_cell () {
+ *     FEValues<dim>::invalidate_previous_cell ()
+ *     {
  *       previous_cell = Triangulation<dim>::active_cell_iterator();
  *     }
  *   @endcode
@@ -1030,7 +1041,7 @@ namespace internal
  * computers that aren't very reliable (e.g. on very large clusters where
  * individual nodes occasionally fail and then bring down an entire MPI job).
  *
- * For technical reasons, writing and restoring a Triangulation object is not-
+ * For technical reasons, writing and restoring a Triangulation object is not
  * trivial. The primary reason is that unlike many other objects,
  * triangulations rely on many other objects to which they store pointers or
  * with which they interface; for example, triangulations store pointers to
@@ -1063,7 +1074,7 @@ namespace internal
  *
  * <h3>Technical details</h3>
  *
- * <h4>Algorithms for mesh regularization and smoothing upon refinement</h4>
+ * <h4>%Algorithms for mesh regularization and smoothing upon refinement</h4>
  *
  * We chose an inductive point of view: since upon creation of the
  * triangulation all cells are on the same level, all regularity assumptions
@@ -1461,7 +1472,6 @@ public:
     distorted_cells;
   };
 
-
   /**
    * Make the dimension available in function templates.
    */
@@ -1688,13 +1698,6 @@ public:
    * @ref GlossBoundaryIndicator "Glossary entry on boundary indicators"
    */
   std::vector<types::boundary_id> get_boundary_ids() const;
-
-  /**
-   * Deprecated spelling of get_boundary_ids().
-   *
-   * @deprecated Use get_boundary_ids() instead.
-   */
-  std::vector<types::boundary_id> get_boundary_indicators() const DEAL_II_DEPRECATED;
 
   /**
    * Returns a vector containing all manifold indicators assigned to the
@@ -2020,6 +2023,12 @@ public:
      * is called. This signal is also triggered when loading a triangulation
      * from an archive via Triangulation::load() as the previous content of
      * the triangulation is first destroyed.
+     *
+     * The signal is triggered before the data structures of the
+     * triangulation are destroyed. In other words, the functions
+     * attached to this signal get a last look at the triangulation,
+     * for example to save information stored as part of the
+     * triangulation.
      */
     boost::signals2::signal<void ()> clear;
 
@@ -2964,6 +2973,33 @@ public:
   void load (Archive &ar,
              const unsigned int version);
 
+
+  /**
+    * Declare the (coarse) face pairs given in the argument of this function
+    * as periodic. This way it it possible to obtain neighbors across periodic
+    * boundaries.
+    *
+    * The vector can be filled by the function
+    * GridTools::collect_periodic_faces.
+    *
+    * For more information on periodic boundary conditions see
+    * GridTools::collect_periodic_faces,
+    * DoFTools::make_periodicity_constraints and step-45.
+    *
+    * @note Before this function can be used the Triangulation has to be
+    * initialized and must not be refined.
+    */
+  virtual void
+  add_periodicity
+  (const std::vector<GridTools::PeriodicFacePair<cell_iterator> > &);
+
+  /**
+    * Return the periodic_face_map.
+    */
+  const std::map<std::pair<cell_iterator, unsigned int>,std::pair<std::pair<cell_iterator, unsigned int>, std::bitset<3> > > &
+  get_periodic_face_map() const;
+
+
   BOOST_SERIALIZATION_SPLIT_MEMBER()
 
   /**
@@ -3069,7 +3105,26 @@ protected:
                                 const unsigned int       magic_number2,
                                 std::istream            &in);
 
+  /**
+   * Recreate information about periodic neighbors from periodic_face_pairs_level_0.
+   */
+  void update_periodic_face_map ();
+
+
 private:
+  /**
+    * If add_periodicity() is called, this variable stores the given
+    * periodic face pairs on level 0 for later access during the
+    * identification of ghost cells for the multigrid hierarchy and for
+    * setting up the periodic_face_map.
+    */
+  std::vector<GridTools::PeriodicFacePair<cell_iterator> > periodic_face_pairs_level_0;
+
+  /**
+   * If add_periodicity() is called, this variable stores the active periodic face pairs.
+   */
+  std::map<std::pair<cell_iterator, unsigned int>, std::pair<std::pair<cell_iterator, unsigned int>, std::bitset<3> > > periodic_face_map;
+
   /**
    * @name Cell iterator functions for internal use
    * @{

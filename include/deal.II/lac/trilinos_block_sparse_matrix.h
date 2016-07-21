@@ -31,8 +31,6 @@
 
 #  include <cmath>
 
-#  define TrilinosScalar double
-
 DEAL_II_NAMESPACE_OPEN
 
 // forward declarations
@@ -221,7 +219,8 @@ namespace TrilinosWrappers
     void collect_sizes ();
 
     /**
-     * Return the number of nonzero elements of this matrix.
+     * Return the total number of nonzero elements of this matrix (summed
+     * over all MPI processes).
      */
     size_type n_nonzero_elements () const;
 

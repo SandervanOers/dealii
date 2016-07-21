@@ -20,10 +20,11 @@
 #include <deal.II/base/derivative_form.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/quadrature.h>
+#include <deal.II/base/qprojector.h>
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/block_vector.h>
-#include <deal.II/lac/parallel_vector.h>
-#include <deal.II/lac/parallel_block_vector.h>
+#include <deal.II/lac/la_parallel_vector.h>
+#include <deal.II/lac/la_parallel_block_vector.h>
 #include <deal.II/lac/petsc_vector.h>
 #include <deal.II/lac/petsc_block_vector.h>
 #include <deal.II/lac/trilinos_vector.h>
@@ -50,6 +51,7 @@
 #include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/fe_nothing.h>
+#include <deal.II/fe/mapping_q.h>
 #include <deal.II/fe/mapping_q1.h>
 #include <deal.II/hp/dof_handler.h>
 #include <deal.II/hp/fe_values.h>
@@ -500,10 +502,10 @@ namespace VectorTools
      * mapping here because the function we evaluate for the DoFs is zero in
      * the mapped locations as well as in the original, unmapped locations
      */
-    template <typename DoFHandlerType>
+    template <typename DoFHandlerType, typename number>
     void
     interpolate_zero_boundary_values (const DoFHandlerType                     &dof_handler,
-                                      std::map<types::global_dof_index,double> &boundary_values)
+                                      std::map<types::global_dof_index,number> &boundary_values)
     {
       const unsigned int dim = DoFHandlerType::dimension;
 
@@ -690,15 +692,16 @@ namespace VectorTools
      * Compute the boundary values to be used in the project() functions.
      */
     template <int dim, int spacedim, template <int, int> class DoFHandlerType,
-              template <int,int> class M_or_MC, template <int> class Q_or_QC>
+              template <int,int> class M_or_MC, template <int> class Q_or_QC,
+              typename number>
     void project_compute_b_v
     (const M_or_MC<dim, spacedim>             &mapping,
      const DoFHandlerType<dim,spacedim>       &dof,
-     const Function<spacedim>                 &function,
+     const Function<spacedim,number>          &function,
      const bool                                enforce_zero_boundary,
      const Q_or_QC<dim-1>                     &q_boundary,
      const bool                                project_to_boundary_first,
-     std::map<types::global_dof_index,double> &boundary_values)
+     std::map<types::global_dof_index,number> &boundary_values)
     {
       if (enforce_zero_boundary == true)
         // no need to project boundary
@@ -722,7 +725,7 @@ namespace VectorTools
             const std::vector<types::boundary_id>
             used_boundary_ids = dof.get_triangulation().get_boundary_ids();
 
-            typename FunctionMap<spacedim>::type boundary_functions;
+            std::map<types::boundary_id, const Function<spacedim,number>*> boundary_functions;
             for (unsigned int i=0; i<used_boundary_ids.size(); ++i)
               boundary_functions[used_boundary_ids[i]] = &function;
             project_boundary_values (mapping, dof, boundary_functions, q_boundary,
@@ -735,11 +738,11 @@ namespace VectorTools
      * Return whether the boundary values try to constrain a degree of freedom
      * that is already constrained to something else
      */
-    inline
+    template <typename number>
     bool constraints_and_b_v_are_compatible (const ConstraintMatrix   &constraints,
-                                             std::map<types::global_dof_index,double> &boundary_values)
+                                             std::map<types::global_dof_index,number> &boundary_values)
     {
-      for (std::map<types::global_dof_index,double>::iterator it=boundary_values.begin();
+      for (typename std::map<types::global_dof_index,number>::iterator it=boundary_values.begin();
            it != boundary_values.end(); ++it)
         if (constraints.is_constrained(it->first))
 //TODO: This looks wrong -- shouldn't it be ==0 in the first condition and && ?
@@ -749,6 +752,32 @@ namespace VectorTools
             return false;
 
       return true;
+    }
+
+    template <typename number>
+    void invert_mass_matrix(const SparseMatrix<number> &mass_matrix,
+                            const Vector<number> &rhs,
+                            Vector<number> &solution)
+    {
+      // Allow for a maximum of 5*n steps to reduce the residual by 10^-12. n
+      // steps may not be sufficient, since roundoff errors may accumulate for
+      // badly conditioned matrices
+      ReductionControl      control(5*rhs.size(), 0., 1e-12, false, false);
+      GrowingVectorMemory<Vector<number> > memory;
+      SolverCG<Vector<number> >            cg(control,memory);
+
+      PreconditionSSOR<SparseMatrix<number> > prec;
+      prec.initialize(mass_matrix, 1.2);
+
+      cg.solve (mass_matrix, solution, rhs, prec);
+    }
+
+    template <typename number>
+    void invert_mass_matrix(const SparseMatrix<std::complex<number> > &/*mass_matrix*/,
+                            const Vector<std::complex<number> > &/*rhs*/,
+                            Vector<std::complex<number> > &/*solution*/)
+    {
+      Assert(false, ExcNotImplemented());
     }
 
 
@@ -762,12 +791,13 @@ namespace VectorTools
                      const DoFHandlerType<dim,spacedim> &dof,
                      const ConstraintMatrix             &constraints,
                      const Q_or_QC<dim>                 &quadrature,
-                     const Function<spacedim>           &function,
+                     const Function<spacedim, typename VectorType::value_type>           &function,
                      VectorType                         &vec_result,
                      const bool                          enforce_zero_boundary,
                      const Q_or_QC<dim-1>               &q_boundary,
                      const bool                          project_to_boundary_first)
     {
+      typedef typename VectorType::value_type number;
       Assert (dof.get_fe().n_components() == function.n_components,
               ExcDimensionMismatch(dof.get_fe().n_components(),
                                    function.n_components));
@@ -775,16 +805,16 @@ namespace VectorTools
               ExcDimensionMismatch (vec_result.size(), dof.n_dofs()));
 
       // make up boundary values
-      std::map<types::global_dof_index,double> boundary_values;
+      std::map<types::global_dof_index,number> boundary_values;
       project_compute_b_v(mapping, dof, function, enforce_zero_boundary,
                           q_boundary, project_to_boundary_first, boundary_values);
 
       // check if constraints are compatible (see below)
       const bool constraints_are_compatible =
-        constraints_and_b_v_are_compatible(constraints, boundary_values);
+        constraints_and_b_v_are_compatible<number>(constraints, boundary_values);
 
       // set up mass matrix and right hand side
-      Vector<double> vec (dof.n_dofs());
+      Vector<number> vec (dof.n_dofs());
       SparsityPattern sparsity;
       {
         DynamicSparsityPattern dsp (dof.n_dofs(), dof.n_dofs());
@@ -793,8 +823,8 @@ namespace VectorTools
 
         sparsity.copy_from (dsp);
       }
-      SparseMatrix<double> mass_matrix (sparsity);
-      Vector<double> tmp (mass_matrix.n());
+      SparseMatrix<number> mass_matrix (sparsity);
+      Vector<number> tmp (mass_matrix.n());
 
       // If the constraint matrix does not conflict with the given boundary
       // values (i.e., it either does not contain boundary values or it contains
@@ -803,7 +833,7 @@ namespace VectorTools
       // interpolate the boundary values and then condense the matrix and vector
       if (constraints_are_compatible)
         {
-          const Function<spacedim> *dummy = 0;
+          const Function<spacedim,number> *dummy = 0;
           MatrixCreator::create_mass_matrix (mapping, dof, quadrature,
                                              mass_matrix, function, tmp,
                                              dummy, constraints);
@@ -823,18 +853,7 @@ namespace VectorTools
           constraints.condense(mass_matrix, tmp);
         }
 
-      // Allow for a maximum of 5*n steps to reduce the residual by 10^-12. n
-      // steps may not be sufficient, since roundoff errors may accumulate for
-      // badly conditioned matrices
-      ReductionControl      control(5*tmp.size(), 0., 1e-12, false, false);
-      GrowingVectorMemory<> memory;
-      SolverCG<>            cg(control,memory);
-
-      PreconditionSSOR<> prec;
-      prec.initialize(mass_matrix, 1.2);
-
-      cg.solve (mass_matrix, vec, tmp, prec);
-
+      invert_mass_matrix(mass_matrix,tmp,vec);
       constraints.distribute (vec);
 
       // copy vec into vec_result. we can't use vec_result itself above, since
@@ -851,7 +870,7 @@ namespace VectorTools
                 const DoFHandler<dim,spacedim> &dof,
                 const ConstraintMatrix         &constraints,
                 const Quadrature<dim>          &quadrature,
-                const Function<spacedim>       &function,
+                const Function<spacedim, typename VectorType::value_type>       &function,
                 VectorType                     &vec_result,
                 const bool                     enforce_zero_boundary,
                 const Quadrature<dim-1>        &q_boundary,
@@ -868,7 +887,7 @@ namespace VectorTools
   void project (const DoFHandler<dim,spacedim> &dof,
                 const ConstraintMatrix         &constraints,
                 const Quadrature<dim>          &quadrature,
-                const Function<spacedim>       &function,
+                const Function<spacedim, typename VectorType::value_type>       &function,
                 VectorType                     &vec,
                 const bool                     enforce_zero_boundary,
                 const Quadrature<dim-1>        &q_boundary,
@@ -885,7 +904,7 @@ namespace VectorTools
                 const hp::DoFHandler<dim,spacedim>         &dof,
                 const ConstraintMatrix                     &constraints,
                 const hp::QCollection<dim>                 &quadrature,
-                const Function<spacedim>                   &function,
+                const Function<spacedim, typename VectorType::value_type>                   &function,
                 VectorType                                 &vec_result,
                 const bool                                 enforce_zero_boundary,
                 const hp::QCollection<dim-1>               &q_boundary,
@@ -902,7 +921,7 @@ namespace VectorTools
   void project (const hp::DoFHandler<dim,spacedim> &dof,
                 const ConstraintMatrix             &constraints,
                 const hp::QCollection<dim>         &quadrature,
-                const Function<spacedim>           &function,
+                const Function<spacedim, typename VectorType::value_type>           &function,
                 VectorType                         &vec,
                 const bool                         enforce_zero_boundary,
                 const hp::QCollection<dim-1>       &q_boundary,
@@ -1665,14 +1684,14 @@ namespace VectorTools
     // faces are points and it is far
     // easier to simply work on
     // individual vertices
-    template <typename DoFHandlerType, template <int,int> class M_or_MC>
+    template <typename number, typename DoFHandlerType, template <int,int> class M_or_MC>
     static inline
     void do_interpolate_boundary_values
     (const M_or_MC<DoFHandlerType::dimension, DoFHandlerType::space_dimension> &,
-     const DoFHandlerType                                              &dof,
-     const typename FunctionMap<DoFHandlerType::space_dimension>::type &function_map,
-     std::map<types::global_dof_index,double>                          &boundary_values,
-     const ComponentMask                                               &component_mask,
+     const DoFHandlerType                                                                        &dof,
+     const std::map<types::boundary_id, const Function<DoFHandlerType::space_dimension,number>*> &function_map,
+     std::map<types::global_dof_index,number>                                                    &boundary_values,
+     const ComponentMask                                                                         &component_mask,
      const dealii::internal::int2type<1>)
     {
       const unsigned int dim = DoFHandlerType::dimension;
@@ -1697,7 +1716,7 @@ namespace VectorTools
               &&
               (function_map.find(cell->face(direction)->boundary_id()) != function_map.end()))
             {
-              const Function<DoFHandlerType::space_dimension> &boundary_function
+              const Function<DoFHandlerType::space_dimension,number> &boundary_function
                 = *function_map.find(cell->face(direction)->boundary_id())->second;
 
               // get the FE corresponding to this
@@ -1725,7 +1744,7 @@ namespace VectorTools
               // of the number of
               // components of the
               // function
-              Vector<double> function_values (fe.n_components());
+              Vector<number> function_values (fe.n_components());
               if (fe.n_components() == 1)
                 function_values(0)
                   = boundary_function.value (cell->vertex(direction));
@@ -1748,15 +1767,15 @@ namespace VectorTools
     // dim_, it is clearly less specialized than the 1d function above and
     // whenever possible (i.e., if dim==1), the function template above
     // will be used
-    template <typename DoFHandlerType, template <int,int> class M_or_MC, int dim_>
+    template <typename number, typename DoFHandlerType, template <int,int> class M_or_MC, int dim_>
     static inline
     void
     do_interpolate_boundary_values
-    (const M_or_MC<DoFHandlerType::dimension, DoFHandlerType::space_dimension> &mapping,
-     const DoFHandlerType                                                      &dof,
-     const typename FunctionMap<DoFHandlerType::space_dimension>::type         &function_map,
-     std::map<types::global_dof_index,double>                                  &boundary_values,
-     const ComponentMask                                                       &component_mask,
+    (const M_or_MC<DoFHandlerType::dimension, DoFHandlerType::space_dimension>                   &mapping,
+     const DoFHandlerType                                                                        &dof,
+     const std::map<types::boundary_id, const Function<DoFHandlerType::space_dimension,number>*> &function_map,
+     std::map<types::global_dof_index,number>                                                    &boundary_values,
+     const ComponentMask                                                                         &component_mask,
      const dealii::internal::int2type<dim_>)
     {
       const unsigned int dim = DoFHandlerType::dimension;
@@ -1780,7 +1799,7 @@ namespace VectorTools
       const unsigned int        n_components = DoFTools::n_components(dof);
       const bool                fe_is_system = (n_components != 1);
 
-      for (typename FunctionMap<spacedim>::type::const_iterator i=function_map.begin();
+      for (typename std::map<types::boundary_id, const Function<spacedim,number>*>::const_iterator i=function_map.begin();
            i!=function_map.end(); ++i)
         Assert (n_components == i->second->n_components,
                 ExcDimensionMismatch(n_components, i->second->n_components));
@@ -1795,8 +1814,8 @@ namespace VectorTools
       // array to store the values of the boundary function at the boundary
       // points. have two arrays for scalar and vector functions to use the
       // more efficient one respectively
-      std::vector<double>          dof_values_scalar;
-      std::vector<Vector<double> > dof_values_system;
+      std::vector<number>          dof_values_scalar;
+      std::vector<Vector<number> > dof_values_system;
       dof_values_scalar.reserve (DoFTools::max_dofs_per_face (dof));
       dof_values_system.reserve (DoFTools::max_dofs_per_face (dof));
 
@@ -1909,7 +1928,7 @@ namespace VectorTools
                       // allocating temporary if possible
                       if (dof_values_system.size() < fe.dofs_per_face)
                         dof_values_system.resize (fe.dofs_per_face,
-                                                  Vector<double>(fe.n_components()));
+                                                  Vector<number>(fe.n_components()));
                       else
                         dof_values_system.resize (fe.dofs_per_face);
 
@@ -1991,15 +2010,14 @@ namespace VectorTools
 
 
 
-  template <typename DoFHandlerType>
+  template <typename DoFHandlerType, typename number>
   void
-
   interpolate_boundary_values
-  (const Mapping<DoFHandlerType::dimension, DoFHandlerType::space_dimension> &mapping,
-   const DoFHandlerType                                                      &dof,
-   const typename FunctionMap<DoFHandlerType::space_dimension>::type         &function_map,
-   std::map<types::global_dof_index,double>                                  &boundary_values,
-   const ComponentMask                                                       &component_mask_)
+  (const Mapping<DoFHandlerType::dimension, DoFHandlerType::space_dimension>                   &mapping,
+   const DoFHandlerType                                                                        &dof,
+   const std::map<types::boundary_id, const Function<DoFHandlerType::space_dimension,number>*> &function_map,
+   std::map<types::global_dof_index,number>                                                    &boundary_values,
+   const ComponentMask                                                                         &component_mask_)
   {
     do_interpolate_boundary_values (mapping, dof, function_map, boundary_values,
                                     component_mask_,
@@ -2008,31 +2026,31 @@ namespace VectorTools
 
 
 
-  template <typename DoFHandlerType>
+  template <typename DoFHandlerType, typename number>
   void
   interpolate_boundary_values
   (const Mapping<DoFHandlerType::dimension, DoFHandlerType::space_dimension> &mapping,
    const DoFHandlerType                                                      &dof,
    const types::boundary_id                                                   boundary_component,
-   const Function<DoFHandlerType::space_dimension>                           &boundary_function,
-   std::map<types::global_dof_index,double>                                  &boundary_values,
+   const Function<DoFHandlerType::space_dimension,number>                    &boundary_function,
+   std::map<types::global_dof_index,number>                                  &boundary_values,
    const ComponentMask                                                       &component_mask)
   {
-    typename FunctionMap<DoFHandlerType::space_dimension>::type function_map;
+    std::map<types::boundary_id, const Function<DoFHandlerType::space_dimension,number>*> function_map;
     function_map[boundary_component] = &boundary_function;
     interpolate_boundary_values (mapping, dof, function_map, boundary_values,
                                  component_mask);
   }
 
 
-  template <int dim, int spacedim>
+  template <int dim, int spacedim, typename number>
   void
   interpolate_boundary_values
-  (const hp::MappingCollection<dim,spacedim>  &mapping,
-   const hp::DoFHandler<dim,spacedim>         &dof,
-   const typename FunctionMap<spacedim>::type &function_map,
-   std::map<types::global_dof_index,double>   &boundary_values,
-   const ComponentMask                        &component_mask_)
+  (const hp::MappingCollection<dim,spacedim>                            &mapping,
+   const hp::DoFHandler<dim,spacedim>                                   &dof,
+   const std::map<types::boundary_id, const Function<spacedim,number>*> &function_map,
+   std::map<types::global_dof_index,number>                             &boundary_values,
+   const ComponentMask                                                  &component_mask_)
   {
     do_interpolate_boundary_values (mapping, dof, function_map, boundary_values,
                                     component_mask_,
@@ -2041,14 +2059,14 @@ namespace VectorTools
 
 
 
-  template <typename DoFHandlerType>
+  template <typename DoFHandlerType, typename number>
   void
   interpolate_boundary_values
-  (const DoFHandlerType                            &dof,
-   const types::boundary_id                         boundary_component,
-   const Function<DoFHandlerType::space_dimension> &boundary_function,
-   std::map<types::global_dof_index,double>        &boundary_values,
-   const ComponentMask                             &component_mask)
+  (const DoFHandlerType                                   &dof,
+   const types::boundary_id                                boundary_component,
+   const Function<DoFHandlerType::space_dimension,number> &boundary_function,
+   std::map<types::global_dof_index,number>               &boundary_values,
+   const ComponentMask                                    &component_mask)
   {
     interpolate_boundary_values(StaticMappingQ1<DoFHandlerType::dimension,DoFHandlerType::space_dimension>::mapping,
                                 dof, boundary_component,
@@ -2057,13 +2075,13 @@ namespace VectorTools
 
 
 
-  template <typename DoFHandlerType>
+  template <typename DoFHandlerType, typename number>
   void
   interpolate_boundary_values
-  (const DoFHandlerType                                              &dof,
-   const typename FunctionMap<DoFHandlerType::space_dimension>::type &function_map,
-   std::map<types::global_dof_index,double>                          &boundary_values,
-   const ComponentMask                                               &component_mask)
+  (const DoFHandlerType                                                                        &dof,
+   const std::map<types::boundary_id, const Function<DoFHandlerType::space_dimension,number>*> &function_map,
+   std::map<types::global_dof_index,number>                                                    &boundary_values,
+   const ComponentMask                                                                         &component_mask)
   {
     interpolate_boundary_values
     (StaticMappingQ1<DoFHandlerType::dimension,DoFHandlerType::space_dimension>::mapping,
@@ -2078,19 +2096,19 @@ namespace VectorTools
 
 
 
-  template <typename DoFHandlerType>
+  template <typename DoFHandlerType, typename number>
   void
   interpolate_boundary_values
-  (const Mapping<DoFHandlerType::dimension, DoFHandlerType::space_dimension> &mapping,
-   const DoFHandlerType                                                      &dof,
-   const typename FunctionMap<DoFHandlerType::space_dimension>::type         &function_map,
-   ConstraintMatrix                                                          &constraints,
-   const ComponentMask                                                       &component_mask_)
+  (const Mapping<DoFHandlerType::dimension, DoFHandlerType::space_dimension>                   &mapping,
+   const DoFHandlerType                                                                        &dof,
+   const std::map<types::boundary_id, const Function<DoFHandlerType::space_dimension,number>*> &function_map,
+   ConstraintMatrix                                                                            &constraints,
+   const ComponentMask                                                                         &component_mask_)
   {
-    std::map<types::global_dof_index,double> boundary_values;
+    std::map<types::global_dof_index,number> boundary_values;
     interpolate_boundary_values (mapping, dof, function_map,
                                  boundary_values, component_mask_);
-    std::map<types::global_dof_index,double>::const_iterator boundary_value =
+    typename std::map<types::global_dof_index,number>::const_iterator boundary_value =
       boundary_values.begin();
     for ( ; boundary_value !=boundary_values.end(); ++boundary_value)
       {
@@ -2107,17 +2125,17 @@ namespace VectorTools
 
 
 
-  template <typename DoFHandlerType>
+  template <typename DoFHandlerType, typename number>
   void
   interpolate_boundary_values
   (const Mapping<DoFHandlerType::dimension, DoFHandlerType::space_dimension> &mapping,
    const DoFHandlerType                                                      &dof,
    const types::boundary_id                                                   boundary_component,
-   const Function<DoFHandlerType::space_dimension>                           &boundary_function,
+   const Function<DoFHandlerType::space_dimension,number>                    &boundary_function,
    ConstraintMatrix                                                          &constraints,
    const ComponentMask                                                       &component_mask)
   {
-    typename FunctionMap<DoFHandlerType::space_dimension>::type function_map;
+    std::map<types::boundary_id, const Function<DoFHandlerType::space_dimension,number>*> function_map;
     function_map[boundary_component] = &boundary_function;
     interpolate_boundary_values (mapping, dof, function_map, constraints,
                                  component_mask);
@@ -2125,14 +2143,14 @@ namespace VectorTools
 
 
 
-  template <typename DoFHandlerType>
+  template <typename DoFHandlerType, typename number>
   void
   interpolate_boundary_values
-  (const DoFHandlerType                            &dof,
-   const types::boundary_id                         boundary_component,
-   const Function<DoFHandlerType::space_dimension> &boundary_function,
-   ConstraintMatrix                                &constraints,
-   const ComponentMask                             &component_mask)
+  (const DoFHandlerType                                   &dof,
+   const types::boundary_id                                boundary_component,
+   const Function<DoFHandlerType::space_dimension,number> &boundary_function,
+   ConstraintMatrix                                       &constraints,
+   const ComponentMask                                    &component_mask)
   {
     interpolate_boundary_values
     (StaticMappingQ1<DoFHandlerType::dimension,DoFHandlerType::space_dimension>::mapping,
@@ -2142,13 +2160,13 @@ namespace VectorTools
 
 
 
-  template <typename DoFHandlerType>
+  template <typename DoFHandlerType, typename number>
   void
   interpolate_boundary_values
-  (const DoFHandlerType                                              &dof,
-   const typename FunctionMap<DoFHandlerType::space_dimension>::type &function_map,
-   ConstraintMatrix                                                  &constraints,
-   const ComponentMask                                               &component_mask)
+  (const DoFHandlerType                                                                        &dof,
+   const std::map<types::boundary_id, const Function<DoFHandlerType::space_dimension,number>*> &function_map,
+   ConstraintMatrix                                                                            &constraints,
+   const ComponentMask                                                                         &component_mask)
   {
     interpolate_boundary_values
     (StaticMappingQ1<DoFHandlerType::dimension,DoFHandlerType::space_dimension>::mapping,
@@ -2164,15 +2182,84 @@ namespace VectorTools
 
   namespace
   {
+    // keep the first argument non-reference since we use it
+    // with 1e-8 * number
+    template <typename number1, typename number2>
+    bool real_part_bigger_than(const number1 a,
+                               const number2 &b)
+    {
+      return a > b;
+    }
+
+    template <typename number1, typename number2>
+    bool real_part_bigger_than(const std::complex<number1> a,
+                               const std::complex<number2> &b)
+    {
+      Assert(std::abs(a.imag()) <= 1e-15*std::abs(a) , ExcInternalError());
+      Assert(std::abs(b.imag()) <= 1e-15*std::abs(b) , ExcInternalError());
+      return a.real() > b.real();
+    }
+
+    // this function is needed to get an idea where
+    // rhs.norm_sqr()  is too small for a given type.
+    template <typename number>
+    number min_number(const number &/*dummy*/)
+    {
+      return std::numeric_limits<number>::min();
+    }
+
+    // Sine rhs.norm_sqr() is non-negative real, in complex case we
+    // take the numeric limits of the underlying type used in std::complex<>.
+    template <typename number>
+    number min_number(const std::complex<number> &/*dummy*/)
+    {
+      return std::numeric_limits<number>::min();
+    }
+
+
+    template <typename number>
+    void invert_mass_matrix(const SparseMatrix<number> &mass_matrix,
+                            const FilteredMatrix<Vector<number> > &filtered_mass_matrix,
+                            FilteredMatrix<Vector<number> > &filtered_preconditioner,
+                            const Vector<number> &rhs,
+                            Vector<number> &boundary_projection)
+    {
+      // Allow for a maximum of 5*n steps to reduce the residual by 10^-12. n
+      // steps may not be sufficient, since roundoff errors may accumulate for
+      // badly conditioned matrices
+      ReductionControl        control(5*rhs.size(), 0., 1.e-12, false, false);
+      GrowingVectorMemory<Vector<number> > memory;
+      SolverCG<Vector<number> >            cg(control,memory);
+
+      PreconditionSSOR<SparseMatrix<number> > prec;
+      prec.initialize(mass_matrix, 1.2);
+      filtered_preconditioner.initialize(prec, true);
+      // solve
+      cg.solve (filtered_mass_matrix, boundary_projection, rhs, filtered_preconditioner);
+      filtered_preconditioner.apply_constraints(boundary_projection, true);
+      filtered_preconditioner.clear();
+    }
+
+    template <typename number>
+    void invert_mass_matrix(const SparseMatrix<std::complex<number> > &/*mass_matrix*/,
+                            const FilteredMatrix<Vector<std::complex<number> > > &/*filtered_mass_matrix*/,
+                            FilteredMatrix<Vector<std::complex<number> > > &/*filtered_preconditioner*/,
+                            const Vector<std::complex<number> > &/*rhs*/,
+                            Vector<std::complex<number> > &/*boundary_projection*/)
+    {
+      Assert(false, ExcNotImplemented());
+    }
+
+
     template <int dim, int spacedim, template <int, int> class DoFHandlerType,
-              template <int,int> class M_or_MC, template <int> class Q_or_QC>
+              template <int,int> class M_or_MC, template <int> class Q_or_QC, typename number>
     void
-    do_project_boundary_values (const M_or_MC<dim, spacedim>               &mapping,
-                                const DoFHandlerType<dim, spacedim>        &dof,
-                                const typename FunctionMap<spacedim>::type &boundary_functions,
-                                const Q_or_QC<dim-1>                       &q,
-                                std::map<types::global_dof_index,double>   &boundary_values,
-                                std::vector<unsigned int>                   component_mapping)
+    do_project_boundary_values (const M_or_MC<dim, spacedim>                                         &mapping,
+                                const DoFHandlerType<dim, spacedim>                                  &dof,
+                                const std::map<types::boundary_id, const Function<spacedim,number>*> &boundary_functions,
+                                const Q_or_QC<dim-1>                                                 &q,
+                                std::map<types::global_dof_index,number>                             &boundary_values,
+                                std::vector<unsigned int>                                             component_mapping)
     {
       // in 1d, projection onto the 0d end points == interpolation
       if (dim == 1)
@@ -2204,7 +2291,7 @@ namespace VectorTools
 
       std::vector<types::global_dof_index> dof_to_boundary_mapping;
       std::set<types::boundary_id> selected_boundary_components;
-      for (typename FunctionMap<spacedim>::type::const_iterator i=boundary_functions.begin();
+      for (typename std::map<types::boundary_id, const Function<spacedim,number>*>::const_iterator i=boundary_functions.begin();
            i!=boundary_functions.end(); ++i)
         selected_boundary_components.insert (i->first);
 
@@ -2216,8 +2303,8 @@ namespace VectorTools
         return;
 
       // set up sparsity structure
-      DynamicSparsityPattern dsp(dof.n_boundary_dofs (boundary_functions),
-                                 dof.n_boundary_dofs (boundary_functions));
+      DynamicSparsityPattern dsp(dof.n_boundary_dofs(boundary_functions),
+                                 dof.n_boundary_dofs(boundary_functions));
       DoFTools::make_boundary_sparsity_pattern (dof,
                                                 boundary_functions,
                                                 dof_to_boundary_mapping,
@@ -2256,7 +2343,12 @@ namespace VectorTools
                       level = cell->level();
                     else
                       {
-                        Assert (level == cell->level(), ExcNotImplemented());
+                        Assert (level == cell->level(),
+                                ExcMessage("The mesh you use in projecting boundary values "
+                                           "has hanging nodes at the boundary. This would require "
+                                           "dealing with hanging node constraints when solving "
+                                           "the linear system on the boundary, but this is not "
+                                           "currently implemented."));
                       }
                   }
               }
@@ -2266,13 +2358,13 @@ namespace VectorTools
 
 
       // make mass matrix and right hand side
-      SparseMatrix<double> mass_matrix(sparsity);
-      Vector<double>       rhs(sparsity.n_rows());
+      SparseMatrix<number> mass_matrix(sparsity);
+      Vector<number>       rhs(sparsity.n_rows());
 
 
       MatrixCreator::create_boundary_mass_matrix (mapping, dof, q,
                                                   mass_matrix, boundary_functions,
-                                                  rhs, dof_to_boundary_mapping, (const Function<spacedim> *) 0,
+                                                  rhs, dof_to_boundary_mapping, (const Function<spacedim,number> *) 0,
                                                   component_mapping);
 
       // For certain weird elements,
@@ -2287,17 +2379,22 @@ namespace VectorTools
 
 //TODO: Maybe we should figure out if the element really needs this
 
-      FilteredMatrix<Vector<double> > filtered_mass_matrix(mass_matrix, true);
-      FilteredMatrix<Vector<double> > filtered_precondition;
+      FilteredMatrix<Vector<number> > filtered_mass_matrix(mass_matrix, true);
+      FilteredMatrix<Vector<number> > filtered_precondition;
       std::vector<bool> excluded_dofs(mass_matrix.m(), false);
 
-      double max_element = 0.;
+      // we assemble mass matrix with unit weight,
+      // thus it will be real-valued irrespectively of the underlying algebra
+      // with positive elements on diagonal.
+      // Thus in order to extend this filtering to complex-algebra simply take
+      // the real-part of element.
+      number max_element = 0.;
       for (unsigned int i=0; i<mass_matrix.m(); ++i)
-        if (mass_matrix.diag_element(i) > max_element)
+        if (real_part_bigger_than(mass_matrix.diag_element(i),max_element))
           max_element = mass_matrix.diag_element(i);
 
       for (unsigned int i=0; i<mass_matrix.m(); ++i)
-        if (mass_matrix.diag_element(i) < 1.e-8 * max_element)
+        if (real_part_bigger_than(1.e-8 * max_element,mass_matrix.diag_element(i)))
           {
             filtered_mass_matrix.add_constraint(i, 0.);
             filtered_precondition.add_constraint(i, 0.);
@@ -2305,28 +2402,19 @@ namespace VectorTools
             excluded_dofs[i] = true;
           }
 
-      Vector<double> boundary_projection (rhs.size());
+      Vector<number> boundary_projection (rhs.size());
 
       // cannot reduce residual in a useful way if we are close to the square
       // root of the minimal double value
-      if (rhs.norm_sqr() < 1e28 * std::numeric_limits<double>::min())
+      if (rhs.norm_sqr() < 1e28 * min_number(number()))
         boundary_projection = 0;
       else
         {
-          // Allow for a maximum of 5*n steps to reduce the residual by 10^-12. n
-          // steps may not be sufficient, since roundoff errors may accumulate for
-          // badly conditioned matrices
-          ReductionControl        control(5*rhs.size(), 0., 1.e-12, false, false);
-          GrowingVectorMemory<> memory;
-          SolverCG<>              cg(control,memory);
-
-          PreconditionSSOR<> prec;
-          prec.initialize(mass_matrix, 1.2);
-          filtered_precondition.initialize(prec, true);
-          // solve
-          cg.solve (filtered_mass_matrix, boundary_projection, rhs, filtered_precondition);
-          filtered_precondition.apply_constraints(boundary_projection, true);
-          filtered_precondition.clear();
+          invert_mass_matrix(mass_matrix,
+                             filtered_mass_matrix,
+                             filtered_precondition,
+                             rhs,
+                             boundary_projection);
         }
       // fill in boundary values
       for (unsigned int i=0; i<dof_to_boundary_mapping.size(); ++i)
@@ -2347,14 +2435,14 @@ namespace VectorTools
     }
   }
 
-  template <int dim, int spacedim>
+  template <int dim, int spacedim, typename number>
   void
-  project_boundary_values (const Mapping<dim, spacedim>   &mapping,
-                           const DoFHandler<dim, spacedim> &dof,
-                           const typename FunctionMap<spacedim>::type &boundary_functions,
-                           const Quadrature<dim-1>        &q,
-                           std::map<types::global_dof_index,double>  &boundary_values,
-                           std::vector<unsigned int>       component_mapping)
+  project_boundary_values (const Mapping<dim, spacedim>                                         &mapping,
+                           const DoFHandler<dim, spacedim>                                      &dof,
+                           const std::map<types::boundary_id, const Function<spacedim,number>*> &boundary_functions,
+                           const Quadrature<dim-1>                                              &q,
+                           std::map<types::global_dof_index,number>                             &boundary_values,
+                           std::vector<unsigned int>                                             component_mapping)
   {
     do_project_boundary_values(mapping, dof, boundary_functions, q,
                                boundary_values, component_mapping);
@@ -2362,13 +2450,13 @@ namespace VectorTools
 
 
 
-  template <int dim, int spacedim>
+  template <int dim, int spacedim, typename number>
   void
-  project_boundary_values (const DoFHandler<dim,spacedim>    &dof,
-                           const typename FunctionMap<spacedim>::type &boundary_functions,
-                           const Quadrature<dim-1>  &q,
-                           std::map<types::global_dof_index,double> &boundary_values,
-                           std::vector<unsigned int> component_mapping)
+  project_boundary_values (const DoFHandler<dim,spacedim>                                       &dof,
+                           const std::map<types::boundary_id, const Function<spacedim,number>*> &boundary_functions,
+                           const Quadrature<dim-1>                                              &q,
+                           std::map<types::global_dof_index,number>                             &boundary_values,
+                           std::vector<unsigned int>                                             component_mapping)
   {
     project_boundary_values(StaticMappingQ1<dim,spacedim>::mapping, dof, boundary_functions, q,
                             boundary_values, component_mapping);
@@ -2376,13 +2464,13 @@ namespace VectorTools
 
 
 
-  template <int dim, int spacedim>
-  void project_boundary_values (const hp::MappingCollection<dim, spacedim>       &mapping,
-                                const hp::DoFHandler<dim,spacedim>    &dof,
-                                const typename FunctionMap<spacedim>::type &boundary_functions,
-                                const hp::QCollection<dim-1>  &q,
-                                std::map<types::global_dof_index,double> &boundary_values,
-                                std::vector<unsigned int> component_mapping)
+  template <int dim, int spacedim, typename number>
+  void project_boundary_values (const hp::MappingCollection<dim, spacedim>                           &mapping,
+                                const hp::DoFHandler<dim,spacedim>                                   &dof,
+                                const std::map<types::boundary_id, const Function<spacedim,number>*> &boundary_functions,
+                                const hp::QCollection<dim-1>                                         &q,
+                                std::map<types::global_dof_index,number>                             &boundary_values,
+                                std::vector<unsigned int>                                             component_mapping)
   {
     do_project_boundary_values (mapping, dof,
                                 boundary_functions,
@@ -2392,12 +2480,12 @@ namespace VectorTools
 
 
 
-  template <int dim, int spacedim>
-  void project_boundary_values (const hp::DoFHandler<dim,spacedim>    &dof,
-                                const typename FunctionMap<spacedim>::type &boundary_function,
-                                const hp::QCollection<dim-1>  &q,
-                                std::map<types::global_dof_index,double> &boundary_values,
-                                std::vector<unsigned int> component_mapping)
+  template <int dim, int spacedim, typename number>
+  void project_boundary_values (const hp::DoFHandler<dim,spacedim>                                   &dof,
+                                const std::map<types::boundary_id, const Function<spacedim,number>*> &boundary_function,
+                                const hp::QCollection<dim-1>                                         &q,
+                                std::map<types::global_dof_index,number>                             &boundary_values,
+                                std::vector<unsigned int>                                             component_mapping)
   {
     project_boundary_values (hp::StaticMappingQ1<dim,spacedim>::mapping_collection, dof,
                              boundary_function,
@@ -2410,19 +2498,19 @@ namespace VectorTools
 
 
 
-  template <int dim, int spacedim>
+  template <int dim, int spacedim, typename number>
   void
-  project_boundary_values (const Mapping<dim, spacedim>       &mapping,
-                           const DoFHandler<dim,spacedim>    &dof,
-                           const typename FunctionMap<spacedim>::type &boundary_functions,
-                           const Quadrature<dim-1>  &q,
-                           ConstraintMatrix &constraints,
-                           std::vector<unsigned int> component_mapping)
+  project_boundary_values (const Mapping<dim, spacedim>                                         &mapping,
+                           const DoFHandler<dim,spacedim>                                       &dof,
+                           const std::map<types::boundary_id, const Function<spacedim,number>*> &boundary_functions,
+                           const Quadrature<dim-1>                                              &q,
+                           ConstraintMatrix                                                     &constraints,
+                           std::vector<unsigned int>                                             component_mapping)
   {
-    std::map<types::global_dof_index,double> boundary_values;
+    std::map<types::global_dof_index,number> boundary_values;
     project_boundary_values (mapping, dof, boundary_functions, q,
                              boundary_values, component_mapping);
-    std::map<types::global_dof_index,double>::const_iterator boundary_value =
+    typename std::map<types::global_dof_index,number>::const_iterator boundary_value =
       boundary_values.begin();
     for ( ; boundary_value !=boundary_values.end(); ++boundary_value)
       {
@@ -2437,13 +2525,13 @@ namespace VectorTools
 
 
 
-  template <int dim, int spacedim>
+  template <int dim, int spacedim, typename number>
   void
-  project_boundary_values (const DoFHandler<dim,spacedim>    &dof,
-                           const typename FunctionMap<spacedim>::type &boundary_functions,
-                           const Quadrature<dim-1>  &q,
-                           ConstraintMatrix &constraints,
-                           std::vector<unsigned int> component_mapping)
+  project_boundary_values (const DoFHandler<dim,spacedim>                                       &dof,
+                           const std::map<types::boundary_id, const Function<spacedim,number>*> &boundary_functions,
+                           const Quadrature<dim-1>                                              &q,
+                           ConstraintMatrix                                                     &constraints,
+                           std::vector<unsigned int>                                             component_mapping)
   {
     project_boundary_values(StaticMappingQ1<dim,spacedim>::mapping, dof, boundary_functions, q,
                             constraints, component_mapping);
@@ -6574,7 +6662,97 @@ namespace VectorTools
                               norm, weight, exponent);
   }
 
+  template <int dim, int spacedim, class InVector>
+  double compute_global_error(const Triangulation<dim,spacedim> &tria,
+                              const InVector &cellwise_error,
+                              const NormType &norm,
+                              const double exponent)
+  {
+    Assert( cellwise_error.size() == tria.n_active_cells(),
+            ExcMessage("input vector cell_error has invalid size!"));
+#ifdef DEBUG
+    {
+      // check that off-processor entries are zero. Otherwise we will compute
+      // wrong results below!
+      typename InVector::size_type i = 0;
+      typename Triangulation<dim,spacedim>::active_cell_iterator it = tria.begin_active();
+      for (; i<cellwise_error.size(); ++i, ++it)
+        if (!it->is_locally_owned())
+          Assert(std::fabs(cellwise_error[i]) <  1e-20,
+                 ExcMessage("cellwise_error of cells that are not locally owned need to be zero!"));
+    }
+#endif
 
+    MPI_Comm comm = MPI_COMM_SELF;
+#ifdef DEAL_II_WITH_MPI
+    if (const parallel::Triangulation<dim,spacedim> *ptria =
+          dynamic_cast<const parallel::Triangulation<dim,spacedim>*>(&tria))
+      comm = ptria->get_communicator();
+#endif
+
+    switch (norm)
+      {
+      case L2_norm:
+      case H1_seminorm:
+      case H1_norm:
+      case Hdiv_seminorm:
+      {
+        const double local = cellwise_error.l2_norm();
+        return std::sqrt (Utilities::MPI::sum (local * local, comm));
+      }
+
+      case L1_norm:
+      {
+        const double local = cellwise_error.l1_norm();
+        return Utilities::MPI::sum (local, comm);
+      }
+
+      case Linfty_norm:
+      case W1infty_seminorm:
+      {
+        const double local = cellwise_error.linfty_norm();
+        return Utilities::MPI::max (local, comm);
+      }
+
+      case W1infty_norm:
+      {
+        AssertThrow(false, ExcMessage(
+                      "compute_global_error() is impossible for "
+                      "the W1infty_norm. See the documentation for "
+                      "NormType::W1infty_norm for more information."));
+        return std::numeric_limits<double>::infinity();
+      }
+
+      case mean:
+      {
+        // Note: mean is defined as int_\Omega f = sum_K \int_K f, so we need
+        // the sum of the cellwise errors not the Euclidean mean value that
+        // is returned by Vector<>::mean_value().
+        const double local = cellwise_error.mean_value()
+                             * cellwise_error.size();
+        return Utilities::MPI::sum (local, comm);
+      }
+
+      case Lp_norm:
+      case W1p_norm:
+      case W1p_seminorm:
+      {
+        double local = 0;
+        typename InVector::size_type i;
+        typename Triangulation<dim,spacedim>::active_cell_iterator it = tria.begin_active();
+        for (i = 0; i<cellwise_error.size(); ++i, ++it)
+          if (it->is_locally_owned())
+            local += std::pow(cellwise_error[i], exponent);
+
+        return std::pow (Utilities::MPI::sum (local, comm), 1./exponent);
+      }
+
+      default:
+        AssertThrow(false, ExcNotImplemented());
+        break;
+      }
+    return 0.0;
+  }
 
   template <int dim, typename VectorType, int spacedim>
   void
@@ -6998,15 +7176,8 @@ namespace VectorTools
       }
     else
       {
-        // This function is not implemented for distributed vectors, so
-        // if v is not a boring Vector or BlockVector:
-        Assert(   dynamic_cast<Vector<double> *>(& v)
-                  || dynamic_cast<Vector<float> *>(& v)
-                  || dynamic_cast<Vector<long double> *>(& v)
-                  || dynamic_cast<BlockVector<double> *>(& v)
-                  || dynamic_cast<BlockVector<float> *>(& v)
-                  || dynamic_cast<BlockVector<long double> *>(& v),
-                  ExcNotImplemented());
+        // This function is not implemented for distributed vectors.
+        Assert(!v.supports_distributed_data, ExcNotImplemented());
 
         const unsigned int n = v.size();
 

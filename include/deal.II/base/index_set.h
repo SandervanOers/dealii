@@ -105,6 +105,29 @@ public:
    */
   explicit IndexSet (const size_type size);
 
+#ifdef DEAL_II_WITH_CXX11
+  /**
+   * Copy constructor.
+   */
+  IndexSet (const IndexSet &) = default;
+
+  /**
+   * Copy assignment operator.
+   */
+  IndexSet &operator= (const IndexSet &) = default;
+
+  /**
+   * Move constructor. Create a new IndexSet by transferring the internal data
+   * of the input set.
+   */
+  IndexSet (IndexSet &&is);
+
+  /**
+   * Move assignment operator. Transfer the internal data of the input set into
+   * the current one.
+   */
+  IndexSet &operator= (IndexSet &&is);
+#endif
 
 #ifdef DEAL_II_WITH_TRILINOS
   /**
@@ -643,6 +666,22 @@ public:
   ElementIterator begin() const;
 
   /**
+   * Return an element iterator pointing to the element with global index
+   * @p global_index or the next larger element if the index is not in the
+   * set. This is equivalent to
+   * @code
+   * auto p = begin();
+   * while (*p<global_index)
+   *   ++p;
+   * return p;
+   * @endcode
+   *
+   * If there is no element in this IndexSet at or behind @p global_index,
+   * this method will return end().
+   */
+  ElementIterator at(const size_type global_index) const;
+
+  /**
    * Return an iterator that points one after the last index that is contained
    * in this IndexSet.
    */
@@ -1172,6 +1211,55 @@ IndexSet::ElementIterator IndexSet::begin() const
 }
 
 inline
+IndexSet::ElementIterator IndexSet::at(const size_type global_index) const
+{
+  compress();
+  Assert (global_index < size(),
+          ExcIndexRangeType<size_type> (global_index, 0, size()));
+
+  if (ranges.empty())
+    return end();
+
+  std::vector<Range>::const_iterator main_range=ranges.begin()+largest_range;
+
+  Range r (global_index, global_index+1);
+  // This optimization makes the bounds for lower_bound smaller by checking
+  // the largest range first.
+  std::vector<Range>::const_iterator range_begin, range_end;
+  if (global_index<main_range->begin)
+    {
+      range_begin = ranges.begin();
+      range_end   = main_range;
+    }
+  else
+    {
+      range_begin = main_range;
+      range_end   = ranges.end();
+    }
+
+  // This will give us the first range p=[a,b[ with b>=global_index using
+  // a binary search
+  const std::vector<Range>::const_iterator
+  p = Utilities::lower_bound(range_begin, range_end, r, Range::end_compare);
+
+  // We couldn't find a range, which means we have no range that contains
+  // global_index and also no range behind it, meaning we need to return end().
+  if (p == ranges.end())
+    return end();
+
+  // Finally, we can have two cases: Either global_index is not in [a,b[,
+  // which means we need to return an iterator to a because global_index, ...,
+  // a-1 is not in the IndexSet (if branch). Alternatively, global_index is in
+  // [a,b[ and we will return an iterator pointing directly at global_index
+  // (else branch).
+  if (global_index < p->begin)
+    return IndexSet::ElementIterator(this, p-ranges.begin(), p->begin);
+  else
+    return IndexSet::ElementIterator(this, p-ranges.begin(), global_index);
+}
+
+
+inline
 IndexSet::ElementIterator IndexSet::end() const
 {
   compress();
@@ -1218,13 +1306,55 @@ IndexSet::IndexSet (const size_type size)
 
 
 
+#ifdef DEAL_II_WITH_CXX11
+
+inline
+IndexSet::IndexSet (IndexSet &&is)
+  :
+  ranges (std::move(is.ranges)),
+  is_compressed (is.is_compressed),
+  index_space_size (is.index_space_size),
+  largest_range (is.largest_range)
+{
+  is.ranges.clear ();
+  is.is_compressed = true;
+  is.index_space_size = 0;
+  is.largest_range = numbers::invalid_unsigned_int;
+
+  compress ();
+}
+
+
+inline
+IndexSet &IndexSet::operator= (IndexSet &&is)
+{
+  ranges = std::move (is.ranges);
+  is_compressed = is.is_compressed;
+  index_space_size = is.index_space_size;
+  largest_range = is.largest_range;
+
+  is.ranges.clear ();
+  is.is_compressed = true;
+  is.index_space_size = 0;
+  is.largest_range = numbers::invalid_unsigned_int;
+
+  compress ();
+
+  return *this;
+}
+
+#endif
+
+
 inline
 void
 IndexSet::clear ()
 {
+  // reset so that there are no indices in the set any more; however,
+  // as documented, the index set retains its size
   ranges.clear ();
-  largest_range = 0;
   is_compressed = true;
+  largest_range = numbers::invalid_unsigned_int;
 }
 
 

@@ -1,6 +1,6 @@
 ## ---------------------------------------------------------------------
 ##
-## Copyright (C) 2012 - 2015 by the deal.II authors
+## Copyright (C) 2012 - 2016 by the deal.II authors
 ##
 ## This file is part of the deal.II library.
 ##
@@ -62,8 +62,10 @@ ENDFOREACH()
 # Register features:
 #
 FOREACH(_feature ${DEAL_II_FEATURES})
-  FILTER_SYSTEM_LIBRARIES(${_feature}) # TODO, remove here
-  REGISTER_FEATURE(${_feature})
+  IF(DEAL_II_WITH_${_feature})
+    FILTER_SYSTEM_LIBRARIES(${_feature})
+    REGISTER_FEATURE(${_feature})
+  ENDIF()
 ENDFOREACH()
 
 #
@@ -74,6 +76,30 @@ FOREACH(_suffix ${DEAL_II_LIST_SUFFIXES})
     REMOVE_DUPLICATES(DEAL_II_${_suffix})
   ELSE()
     REMOVE_DUPLICATES(DEAL_II_${_suffix} REVERSE)
+  ENDIF()
+ENDFOREACH()
+
+#
+# Sanity check: Can we compile with the final setup?
+#
+
+FOREACH(build ${DEAL_II_BUILD_TYPES})
+  CHECK_COMPILER_SETUP(
+    "${DEAL_II_CXX_FLAGS} ${DEAL_II_CXX_FLAGS_${build}}"
+    "${DEAL_II_LINKER_FLAGS} ${DEAL_II_LINKER_FLAGS_${build}}"
+    DEAL_II_HAVE_USABLE_FLAGS_${build}
+    ${DEAL_II_LIBRARIES} ${DEAL_II_LIBRARIES_${build}}
+    )
+
+  IF(NOT DEAL_II_HAVE_USABLE_FLAGS_${build})
+    MESSAGE(FATAL_ERROR "
+  Configuration error: Cannot compile a test program with the final set of
+  compiler and linker flags:
+    CXX flags (${build}): ${DEAL_II_CXX_FLAGS} ${DEAL_II_CXX_FLAGS_${build}}
+    LD flags  (${build}): ${DEAL_II_LINKER_FLAGS} ${DEAL_II_LINKER_FLAGS_${build}}
+    LIBRARIES (${build}): ${DEAL_II_LIBRARIES};${DEAL_II_LIBRARIES_${build}}
+  \n\n"
+      )
   ENDIF()
 ENDFOREACH()
 

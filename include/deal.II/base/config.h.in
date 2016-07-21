@@ -37,8 +37,10 @@
 #cmakedefine DEAL_II_WITH_64BIT_INDICES
 #cmakedefine DEAL_II_WITH_ARPACK
 #cmakedefine DEAL_II_WITH_BZIP2
+#cmakedefine DEAL_II_WITH_CUDA
 #cmakedefine DEAL_II_WITH_CXX11
 #cmakedefine DEAL_II_WITH_CXX14
+#cmakedefine DEAL_II_WITH_GSL
 #cmakedefine DEAL_II_WITH_HDF5
 #cmakedefine DEAL_II_WITH_LAPACK
 #cmakedefine DEAL_II_WITH_METIS
@@ -331,4 +333,3 @@ _Pragma("GCC diagnostic pop")
 #include <deal.II/base/types.h>
 
 #endif
-

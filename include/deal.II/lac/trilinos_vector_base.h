@@ -26,13 +26,13 @@
 #  include <deal.II/base/subscriptor.h>
 #  include <deal.II/lac/exceptions.h>
 #  include <deal.II/lac/vector.h>
+#  include <deal.II/base/mpi.h>
 
 #  include <vector>
 #  include <utility>
 #  include <memory>
 
 DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
-#  define TrilinosScalar double
 #  include "Epetra_ConfigDefs.h"
 #  ifdef DEAL_II_WITH_MPI // only if MPI is installed
 #    include "mpi.h"

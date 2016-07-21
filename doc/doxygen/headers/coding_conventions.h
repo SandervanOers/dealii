@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 1998 - 2015 by the deal.II authors
+// Copyright (C) 1998 - 2016 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
@@ -47,7 +47,16 @@ style file is provided at
 </pre>
 </code>
 on each of your files. This will make sure indentation is conforming to the
-style guidelines outlined in this page.</p>
+style guidelines outlined in this page. Alternatively, if you are using a recent
+version of the library, you can run
+<code>
+<pre>
+  make indent
+</pre>
+</code>
+in whatever directory you set up the library to be compiled in to indent all
+source files.
+</p>
 
 <h3>Style issues</h3>
 
@@ -133,6 +142,19 @@ style guidelines outlined in this page.</p>
 <li> For classes with multiple template arguments, the dimension is usually
   put before the data type specifier, i.e., we use Point<dim,number> and not
   Point<number,dim>.
+
+<li> There are several places in deal.II where we use forward declarations in
+  header files. The reason for this is that we can, hopefully, improve
+  compilation speeds by not using headers when we just need to mark a certain
+  type as an argument to a function. The convention used in deal.II is that, if
+  all we need is a type name, then the type may be forward declared in the
+  header where we need it; if a function (or member function) can return a value
+  then a declaration of that value's type should be available (by including the
+  necessary header). For example, <code>deal.II/dofs/dof_handler.h</code>
+  includes <code>deal.II/dofs/dof_accessor.h</code> so that one can write
+  something like <code>dof_handler.begin_active()->is_active()</code> without
+  explicitly including the header declaring the type of the object returned by
+  <code>begin_active()</code>.
 
 <li> Each class has to have at least 200 pages of documentation ;-)</li>
 
